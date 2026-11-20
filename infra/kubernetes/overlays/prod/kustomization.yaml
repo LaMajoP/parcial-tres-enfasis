@@ -1,6 +1,5 @@
 namespace: aegisvolt-prod
-resources: [../../base]
-nameSuffix: -prod
+resources: [../../base, namespace.yaml]
 patches:
   - target: { kind: ConfigMap, name: aegisvolt-runtime }
     patch: |-
@@ -22,3 +21,8 @@ patches:
       - op: replace
         path: /data/TABLE_FLAGS
         value: aegisvolt-flags-prod
+  - target: { group: argoproj.io, version: v1alpha1, kind: Rollout, name: graphql-gateway }
+    patch: |-
+      - op: replace
+        path: /spec/strategy/canary/steps/2/analysis/args/0/value
+        value: prod

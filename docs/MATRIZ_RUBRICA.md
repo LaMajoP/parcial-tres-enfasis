@@ -1,25 +1,26 @@
 # Matriz de rúbrica oficial
 
-`Resultado real` nunca equivale a una nota. “NO VERIFICADO” significa que el código existe pero el sandbox no permitió ejecutar el recorrido externo/local indicado.
+Fuente: `Especificacion_Oficial_AegisVolt_Para_Codex.md`. Los porcentajes son capas de evaluación oral; la columna de estado representa implementación/evidencia actual, no una nota garantizada.
 
 | Criterio | Peso | Archivos concretos | Prueba/comando | Resultado real | Evidencia | Pendiente externo | Estado |
 |---|---:|---|---|---|---|---|---|
-| Bootstrap S3 privado, cifrado y versionado | 30% | `infra/terraform/bootstrap-state/*` | `terraform apply` bootstrap autorizado | No ejecutado | outputs + `list-object-versions` en manual | Cuenta AWS | IMPLEMENTADO / NO VERIFICADO |
-| Workspaces/state histórico aislado | 30% | `environments/versions.tf`, `scripts/terraform-*` | `terraform workspace list`; `aws s3api list-object-versions` | No ejecutado | `ADR-0003` | AWS + Terraform | IMPLEMENTADO / NO VERIFICADO |
-| VPC privada, VPCE y recorrido válido | 30% | módulos `network`, `vpc-endpoints`, `api-gateway` | comandos DNS/rutas manual | No ejecutado | diagrama despliegue | AWS | IMPLEMENTADO / NO VERIFICADO |
-| Tablas DynamoDB por servicio/ambiente | 30% | módulo `dynamodb`, `bootstrap-dynamodb.mjs` | Compose + `aws dynamodb list-tables` | Compose bloqueado por socket | nombres/código | Docker accesible | IMPLEMENTADO / NO VERIFICADO |
-| CI de PR: lint/build/tests/schema | 25% | `.github/workflows/ci.yml` | PR remoto | No repo Git remoto | workflow | GitHub | IMPLEMENTADO / NO VERIFICADO |
-| Plan según `github.base_ref`, sin echo falso | 25% | `ci.yml` job `terraform-plan` | PR a cada rama | No ejecutado | job falla sin OIDC/backend | GitHub/AWS | IMPLEMENTADO / NO VERIFICADO |
-| Promoción dev→test→prod y apply según rama | 25% | `deploy.yml`, reglas | merge protegido | No ejecutado | `github.ref_name`, concurrency | GitHub/AWS | IMPLEMENTADO / NO VERIFICADO |
-| Protección remota Git | 25% | `github-rulesets.sh`, manual | `git push`/force push contra remoto | No hay remoto | comando reproducible | GitHub | PARCIAL |
-| Canary 20/80 y rollback | 25% | `rollouts/*`, `demo-canary.sh` | `kubectl argo rollouts` + CloudWatch | No ejecutado | AnalysisTemplate | EKS/ALB/CW | IMPLEMENTADO / NO VERIFICADO |
-| Tres microservicios desacoplados | 25% | `services/*/src/index.ts` | Compose health | No ejecutado | interfaces HTTP | npm/Docker | IMPLEMENTADO / NO VERIFICADO |
-| GraphQL unificado y UI conectada | 25% / 8% | `apps/graphql-gateway`, `apps/web` | E2E Playwright | No ejecutado | `operations.spec.ts` | npm/Docker | IMPLEMENTADO / NO VERIFICADO |
-| SAGA durable, orden y compensación | 25% | gateway, `SAGA_ESTADOS_Y_FALLOS.md` | `test:integration` | No ejecutado | pruebas específicas | npm/Docker | IMPLEMENTADO / NO VERIFICADO |
-| Idempotencia/concurrencia | 25% | servicios, `tests/resilience` | `npm run test:resilience` | No ejecutado | test no simulado | npm/Docker | IMPLEMENTADO / NO VERIFICADO |
-| Flags aisladas y cambio caliente | 25% / 8% | gateway, frontend, contratos | integración + UI | No ejecutado | tablas por env/caché | npm/Docker | IMPLEMENTADO / NO VERIFICADO |
-| CloudWatch logs, métricas, alarmas | 12% | observabilidad, módulo cloudwatch | EKS + Logs Insights | No ejecutado | queries | AWS | IMPLEMENTADO / NO VERIFICADO |
-| Prefect health/auditoría real | 12% | `observability/prefect/*` | `python flows.py`/dashboard | Dependencias no instaladas | flow y test | pip/Docker | IMPLEMENTADO / NO VERIFICADO |
-| UI disponibilidad, reserva, flags, auditoría, telemetría | 8% | `apps/web/src/main.tsx` | Playwright | No ejecutado | E2E | npm/Docker | IMPLEMENTADO / NO VERIFICADO |
+| Bootstrap S3 privado, cifrado, bloqueo público y versionado | 30 % | `infra/terraform/bootstrap-state/*` | `terraform plan/apply` autorizado; `aws s3api get-bucket-versioning` | No ejecutado | HCL + manual | Cuenta/rol AWS | IMPLEMENTADO / NO VERIFICADO |
+| Workspaces `dev/test/prod`, state separado y lockfile S3 | 30 % | `environments/versions.tf`, `scripts/terraform-{init,plan}.sh` | `terraform workspace list`, `list-object-versions` | No ejecutado | backend `workspace_key_prefix=env` | Terraform/AWS | IMPLEMENTADO / NO VERIFICADO |
+| VPC por workspace, subredes privadas, VPCE y recorrido API válido | 30 % | módulos `network`, `vpc-endpoints`, `api-gateway`; `ARQUITECTURA.md` | plan + DNS/rutas AWS | No ejecutado | diagrama/ADR-0004 | AWS | IMPLEMENTADO / NO VERIFICADO |
+| Tablas DynamoDB por dominio y ambiente | 30 % | módulo `dynamodb`, `bootstrap-dynamodb.mjs` | Compose + `aws dynamodb list-tables` | Compose bloqueado | código de tablas dev/test/prod | Docker/AWS | IMPLEMENTADO / NO VERIFICADO |
+| CI PR: lint, build, schema, unit, integración y E2E | 25 % | `.github/workflows/ci.yml`, `scripts/check-graphql-schema.ts` | PR a `dev`, `test`, `prod` | YAML válido; no ejecución remota | `validate_workflows.py` | lockfile, GitHub | IMPLEMENTADO / PARCIAL |
+| Terraform plan según `github.base_ref`, sin falso éxito | 25 % | `.github/workflows/ci.yml` | PR con Environment/OIDC | No ejecutado; falla explícitamente sin variables | job `terraform-plan` | OIDC/backend | IMPLEMENTADO / NO VERIFICADO |
+| Reglas Git y promoción `feature→dev→test→prod` | 25 % | `scripts/{create-branches,github-rulesets}.sh`, manual | rulesets + rechazo remoto | No ejecutado | script/API reproducibles | permisos GitHub | PARCIAL |
+| CD usa rama actualizada y evita applies simultáneos | 25 % | `.github/workflows/deploy.yml` | push protegido a cada ambiente | YAML válido; no ejecución | `github.ref_name`, concurrency | runner/AWS | IMPLEMENTADO / PARCIAL |
+| Imagen inmutable construida una vez y promovida por digest | 25 % | `build-release-images.yml`, `deploy-kubernetes.sh` | workflow manual + artifact JSON | No ejecutado | validación `@sha256` | ECR/runner | IMPLEMENTADO / NO VERIFICADO |
+| Canary 20/80 con análisis CloudWatch y rollback | 25 % | `base/{graphql-gateway,analysis-template}.yaml`, `demo-canary.sh` | `kubectl argo rollouts ...` | YAML estático válido; no EKS | checks de 20 %, muestra, 5xx, p95 | ALB/Argo/CW | IMPLEMENTADO / PARCIAL |
+| Tres microservicios desacoplados y gateway GraphQL | 25 % | `services/*`, `apps/graphql-gateway` | Compose health + integración | No ejecutado | contratos HTTP/GraphQL | npm/Docker | IMPLEMENTADO / NO VERIFICADO |
+| SAGA durable: reservar, debitar, activar; compensación en orden | 25 % | gateway, billing, station, dispatch, `SAGA_ESTADOS_Y_FALLOS.md` | `npm run test:integration` | No ejecutado | persistencia antes/después + tests | npm/Docker | IMPLEMENTADO / NO VERIFICADO |
+| Idempotencia, concurrencia, retries y reconciliación | 25 % | servicios, `tests/{integration,resilience}` | `npm run test:resilience` | No ejecutado | conditionals/markers/bulkhead | npm/Docker | IMPLEMENTADO / NO VERIFICADO |
+| Flags runtime aisladas por ambiente | 25 % | gateway, contracts, overlays, tablas flags | integración dev/prod | No ejecutado | cache/invalida/rol prod | npm/Docker | IMPLEMENTADO / NO VERIFICADO |
+| Logs JSON, métricas, alarmas y dashboard CloudWatch | 12 % | observability package, Fluent Bit, módulos IAM/CW | Logs Insights/CW metrics | Código estático validado; no AWS | EMF dimensiones alineadas | EKS/CW | IMPLEMENTADO / PARCIAL |
+| Prefect health y auditoría real de SAGA | 12 % | `observability/prefect/*` | pytest/flow/dashboard | No ejecutado | flow read-only/fixture | pip/Docker | IMPLEMENTADO / NO VERIFICADO |
+| UI web: disponibilidad, reserva, flags, historial, billetera/telemetría | 8 % | `apps/web`, E2E | Playwright/Compose | No ejecutado | UI GraphQL/polling | npm/Docker | IMPLEMENTADO / NO VERIFICADO |
+| Calidad de manifests/probes/policies/seguridad | Transversal | Kustomize, NetworkPolicy, Dockerfile, service accounts | `validate_kubernetes.py`, Kind | Validación estática OK | 37 documentos / sin placeholders | Kind/EKS | IMPLEMENTADO / PARCIAL |
 
-La ausencia de PDF extraíble se registra en `RESULTADOS_VERIFICACION.md`; esta matriz sigue la rúbrica transcrita del enunciado y no inventa confirmación del documento dañado.
+Consulte `AUDITORIA_CONTRA_PDF.md` para correcciones de segunda fase y `RESULTADOS_VERIFICACION.md` para la evidencia de comandos realmente ejecutados.

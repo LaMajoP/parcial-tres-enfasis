@@ -1,51 +1,20 @@
 # Preguntas de defensa
 
-Las preguntas se responden contra la rúbrica transcrita; el PDF adjunto no pudo extraerse en el sandbox y no se inventa una cita literal de su apartado 6.
+Respuestas contrastadas con `Especificacion_Oficial_AegisVolt_Para_Codex.md`. Las referencias apuntan a artefactos concretos; la evidencia de AWS/GitHub se presenta solo si se obtiene realmente.
 
-## ¿Cómo se aíslan Terraform y los ambientes?
-
-`workspace_key_prefix="env"` y workspaces `dev/test/prod` separan state como `env:/<env>/aegisvolt.tfstate`; `terraform.workspace` se usa para CIDR, recursos y tablas, no dentro del backend. `infra/terraform/environments/versions.tf` y `main.tf` lo prueban. Error frecuente: interpolar workspace en bloque backend o usar namespace como si fuera VPC.
-
-## ¿Cómo recupera una versión de state S3?
-
-Se lista versión con `aws s3api list-object-versions`, se descarga a `/tmp` para inspección y se revisa un plan antes de cualquier recuperación aprobada. Versionamiento y bloqueo se definen en `bootstrap-state`. Error: editar tfstate JSON o destruir el bucket primero.
-
-## ¿Cuál es el recorrido de red?
-
-Cliente con conectividad privada → Interface Endpoint `execute-api` → REST API privada validada con `aws:SourceVpce` → VPC Link → NLB interno → Service → pod Gateway. `docs/diagrams/despliegue-red.md` y módulo API. Error: afirmar que el Interface Endpoint conecta API Gateway con pods.
-
-## ¿Qué reglas Git impiden saltar promoción?
-
-`feature/*` nace de `dev`; PR dev, luego PR dev→test y test→prod. `github-rulesets.sh` solicita PR, no force-push y checks obligatorios. `deploy.yml` deriva ambiente de `github.ref_name`; CI deriva plan de `github.base_ref`. Error: usar un valor de ambiente fijo en YAML.
-
-## ¿Cómo evita que test aplique prod?
-
-Cada Environment de GitHub inyecta solo su `AWS_ROLE_ARN` y bucket; CD selecciona `github.ref_name`, tiene concurrency por workspace y Terraform valida workspace. Demostrable en `deploy.yml`. Error: reutilizar rol o state bucket/prefijo de prod para test.
-
-## ¿Qué mide el canary y qué pasa sin muestras?
-
-`AnalysisTemplate` consulta CloudWatch: error rate <2 %, p95 <1000 ms y expresión que falla si hay ≤20 peticiones. No hay métricas = no éxito. Argo mantiene 20/80 hasta AnalysisRun y promueve o aborta. Error: llamar canary a un rolling update o al 20 % de réplicas.
-
-## ¿Qué ocurre si falla el hardware en el paso 3?
-
-El Gateway persiste `COMPENSATING`, ejecuta `REFUND` idempotente y solo después `RELEASE`; termina `COMPENSATED` o `COMPENSATION_FAILED` reconciliable. Ver `SAGA_ESTADOS_Y_FALLOS.md`, `executeSaga` y test de integración. Error: liberar primero o cobrar dos veces al reintentar.
-
-## ¿Cómo previene doble compensación y doble cobro?
-
-Movimientos usan clave durable `idempotencyKey:debit/refund`, Dispatch `ACTIVATION#idempotencyKey` y Reservation condiciona por `sagaId`. SAGA guarda `compensationCompleted`. Error: depender de memoria del proceso o de un retry sin idempotencia.
-
-## ¿Cómo trabajan Prefect y CloudWatch juntos?
-
-CloudWatch centraliza stdout JSON y alarmas/métricas; Prefect agenda health y scan read-only de tabla SAGA, reportando huérfanas o compensaciones fallidas. Ver `observability/prefect/flows.py` y `logs-insights.queries.md`. Error: reportar métricas hardcodeadas como auditoría.
-
-## ¿Por qué un flag dev no modifica prod?
-
-Cada ambiente tiene `aegisvolt-flags-<env>` y Terraform crea tablas distintas. El Gateway cachea cinco segundos e invalida al escribir; prod exige `platform-admin`. Error: misma tabla con columna environment sin policy/partición efectiva.
-
-## ¿Qué trade-off tiene la orquestación?
-
-Hace visible orden, estado y compensación, a costa de un coordinador crítico. La persistencia antes/después, reconciliación y circuit breaker reducen el riesgo. Se documenta en ADR-0001. Error: afirmar transacción ACID distribuida.
-
-## ¿Qué no fue comprobado aún?
-
-La evidencia local/AWS/GitHub depende de red npm, socket Docker y cuentas no disponibles en este sandbox; el estado honesto está en `RESULTADOS_VERIFICACION.md`. Error: presentar manifiestos como despliegue ocurrido.
+| Pregunta | Respuesta técnica breve | Referencia / cómo demostrar | Error frecuente a evitar |
+|---|---|---|---|
+| ¿Cómo se aíslan Terraform y los ambientes? | `workspace_key_prefix="env"` crea states no-default `env:/<workspace>/aegisvolt.tfstate`; `terraform.workspace` nombra VPC, tablas y tags. Namespace no sustituye una VPC. | `infra/terraform/environments/versions.tf`, `main.tf`; `terraform workspace list` | Interpolar `${terraform.workspace}` dentro de `backend` o usar `default`. |
+| ¿Cómo recupera una versión S3? | Se lista, descarga para inspección, respalda estado actual y se ejecuta `plan` antes de una restauración aprobada. Nunca se edita JSON state a mano. | `docs/ACCIONES_MANUALES.md` sección 4; `aws s3api list-object-versions ...` | Destruir bucket/state antes de recursos o restaurar sin plan. |
+| ¿Cuál es el recorrido de red? | Cliente privado llega por VPCE `execute-api` a API REST privada; `aws:SourceVpce` la restringe; VPC Link sale al NLB interno del Service stable y este a pods. ALB interno sirve UI/canary. | `docs/ARQUITECTURA.md`, `docs/diagrams/despliegue-red.md`, `api-gateway/main.tf`, `graphql-gateway.yaml` | Decir que Interface VPCE conecta API Gateway directamente con pods. |
+| ¿Qué protege las ramas y el orden de promoción? | Rulesets remotos obligan PR/review/checks y bloquean force-push; solo `feature→dev→test→prod`. CI usa `github.base_ref`; CD, `github.ref_name`. | `scripts/github-rulesets.sh`, workflows; `git push --force origin HEAD:dev` | Confiar en hooks locales o permitir deploy por `main`. |
+| ¿Cómo evita que test escriba prod? | Branch/Environment inyectan rol OIDC y variables del ambiente; concurrency es por rama; Terraform selecciona el workspace actual y valida no-default. | `deploy.yml`, `ci.yml`, `environments/main.tf` | Reutilizar role/prefijo de prod o hardcodear `dev`. |
+| ¿Qué mide el canary y qué pasa sin muestra? | Argo dirige 20/80 con ALB y consulta CloudWatch: al menos 20 requests, 5xx <2 %, p95 <1000 ms. Resultado inconcluso/falta de muestra falla, no promueve. | `infra/kubernetes/base/analysis-template.yaml`; `kubectl ... get analysisrun` | Llamar canary a 20 % de réplicas o considerar ausencia de datos saludable. |
+| ¿Cómo se demuestra rollback? | La imagen `gateway-defective` conserva readiness pero devuelve HTTP 500 en GraphQL; el AnalysisRun falla y stable conserva tráfico hasta abort/promotion. | `Dockerfile`, gateway, `CANARY_DEFECTIVE_IMAGE=... npm run demo:canary` | Usar una imagen que solo no arranca y afirmar que falló análisis de métricas. |
+| ¿Qué ocurre si falla hardware en paso 3? | Gateway persiste `COMPENSATING`, reembolsa billetera idempotentemente y solo luego libera reserva; queda `COMPENSATED` o `COMPENSATION_FAILED` reconciliable. | `apps/graphql-gateway/src/index.ts`, `SAGA_ESTADOS_Y_FALLOS.md`, `npm run test:integration` | Liberar antes de reembolsar o dejar activación tardía fantasma. |
+| ¿Cómo evita doble cobro/reembolso? | Billing guarda movimiento durable por `idempotencyKey:debit/refund`; reserva condiciona propietario `sagaId`; dispatch guarda `ACTIVATION#key`; coordinador persiste `compensationCompleted`. | billing/station/dispatch/gateway; tests integración/resiliencia | Depender de memoria del proceso o reintentar comandos no idempotentes. |
+| ¿Cómo se recupera una SAGA tras reinicio? | El estado se persiste antes/después de cada efecto y `reconcileSagas` retoma estados intermedios. Prefect detecta atascadas sin mutar datos. | `executeSaga`, `observability/prefect/flows.py` | Declarar una transacción ACID distribuida o Outbox inexistente. |
+| ¿Qué aportan CloudWatch y Prefect? | Fluent Bit centraliza JSON; EMF publica métricas con Environment/Service; alarmas/dashboard usan esos nombres. Prefect revisa `/ready` y tabla SAGA read-only, registrando anomalías reales. | `shared-observability`, `fluent-bit.yaml`, módulos IAM/CW, `flows.py` | Contar métricas hardcodeadas como auditoría. |
+| ¿Por qué un flag dev no cambia prod? | Cada ambiente tiene tabla `aegisvolt-flags-<env>` y configuración propia; caché dura 5 s e invalida al escribir. Prod exige `platform-admin`. | contracts/gateway/overlays; consulta dev y prod | Compartir tabla con una columna environment sin aislamiento real. |
+| ¿Qué trade-off tiene orquestación durable? | Hace explícitos orden, compensación y auditoría; agrega un coordinador crítico, mitigado con DynamoDB, circuit breaker, timeout, bulkhead y reconciliación. | `docs/adr/0001-saga-orquestada.md` | Afirmar que elimina consistencia eventual. |
+| ¿Qué permanece no verificado? | npm/Docker/Terraform/Kind/actionlint/GitHub/AWS estuvieron bloqueados por entorno. Los manifiestos no prueban un despliegue. | `docs/RESULTADOS_VERIFICACION.md` | Presentar código o screenshots no auténticos como operación real. |

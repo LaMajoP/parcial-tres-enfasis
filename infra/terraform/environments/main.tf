@@ -44,11 +44,14 @@ module "eks" {
 module "iam" {
   source            = "../modules/iam"
   environment       = local.environment
+  aws_region        = var.aws_region
+  account_id        = data.aws_caller_identity.current.account_id
   oidc_provider_arn = module.eks.oidc_provider_arn
   oidc_provider_url = module.eks.oidc_provider_url
   table_arns        = module.dynamodb.table_arns
   tags              = local.tags
 }
+data "aws_caller_identity" "current" {}
 module "ecr" { source = "../modules/ecr" environment = local.environment tags = local.tags }
 module "cloudwatch" {
   source             = "../modules/cloudwatch"

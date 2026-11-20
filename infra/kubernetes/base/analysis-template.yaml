@@ -1,0 +1,91 @@
+# El AnalysisRun falla ante muestra insuficiente o datos ausentes. Los nombres y
+# dimensiones coinciden con EMF emitido por shared-observability y Fluent Bit.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata: { name: aegisvolt-cloudwatch-health, namespace: aegisvolt }
+spec:
+  args:
+    - name: environment
+  metrics:
+    - name: requests-sufficient
+      interval: 5m
+      count: 1
+      failureLimit: 0
+      inconclusiveLimit: 0
+      successCondition: result >= 20
+      failureCondition: result < 20
+      provider:
+        cloudWatch:
+          interval: 5m
+          metricDataQueries:
+            - id: requests
+              returnData: true
+              metricStat:
+                metric:
+                  namespace: AegisVolt/Gateway
+                  metricName: Requests
+                  dimensions:
+                    - name: Environment
+                      value: "{{args.environment}}"
+                    - name: Service
+                      value: graphql-gateway
+                period: 300
+                stat: Sum
+    - name: http-5xx-rate-under-two-percent
+      interval: 5m
+      count: 1
+      failureLimit: 0
+      inconclusiveLimit: 0
+      successCondition: result < 2
+      failureCondition: result >= 2
+      provider:
+        cloudWatch:
+          interval: 5m
+          metricDataQueries:
+            - id: requests
+              returnData: false
+              metricStat:
+                metric:
+                  namespace: AegisVolt/Gateway
+                  metricName: Requests
+                  dimensions:
+                    - { name: Environment, value: "{{args.environment}}" }
+                    - { name: Service, value: graphql-gateway }
+                period: 300
+                stat: Sum
+            - id: errors
+              returnData: false
+              metricStat:
+                metric:
+                  namespace: AegisVolt/Gateway
+                  metricName: Http5xx
+                  dimensions:
+                    - { name: Environment, value: "{{args.environment}}" }
+                    - { name: Service, value: graphql-gateway }
+                period: 300
+                stat: Sum
+            - id: error_rate
+              expression: 100 * errors / MAX([requests, 1])
+              returnData: true
+    - name: p95-under-one-second
+      interval: 5m
+      count: 1
+      failureLimit: 0
+      inconclusiveLimit: 0
+      successCondition: result < 1000
+      failureCondition: result >= 1000
+      provider:
+        cloudWatch:
+          interval: 5m
+          metricDataQueries:
+            - id: latency_p95
+              returnData: true
+              metricStat:
+                metric:
+                  namespace: AegisVolt/Gateway
+                  metricName: LatencyMs
+                  dimensions:
+                    - { name: Environment, value: "{{args.environment}}" }
+                    - { name: Service, value: graphql-gateway }
+                period: 300
+                stat: p95

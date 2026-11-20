@@ -6,7 +6,7 @@
   "packageManager": "npm@11.17.0",
   "workspaces": ["apps/*", "services/*", "packages/*"],
   "scripts": {
-    "setup": "npm install && cp -n .env.example .env || true",
+    "setup": "test -f package-lock.json && npm ci --no-audit --no-fund && cp -n .env.example .env || true",
     "dev": "docker compose up --build",
     "seed": "node scripts/seed.mjs",
     "build": "npm run build --workspaces --if-present",
@@ -17,6 +17,7 @@
     "test:resilience": "vitest run tests/resilience",
     "test:all": "npm run lint && npm run build && npm run test && npm run test:integration && npm run test:resilience",
     "test:graphql-schema": "tsx scripts/check-graphql-schema.ts",
+    "validate:kubernetes": "python3 scripts/validate_kubernetes.py",
     "terraform:validate": "bash scripts/terraform-validate.sh",
     "terraform:plan:dev": "bash scripts/terraform-plan.sh dev",
     "terraform:plan:test": "bash scripts/terraform-plan.sh test",

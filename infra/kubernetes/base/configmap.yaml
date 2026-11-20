@@ -11,7 +11,11 @@ data:
   TABLE_DISPATCH: aegisvolt-dispatch-dev
   TABLE_SAGA: aegisvolt-saga-dev
   TABLE_FLAGS: aegisvolt-flags-dev
-  STATION_SERVICE_URL: http://station-reservation.aegisvolt.svc.cluster.local:3001
-  BILLING_SERVICE_URL: http://billing-wallet.aegisvolt.svc.cluster.local:3002
-  DISPATCH_SERVICE_URL: http://energy-dispatch.aegisvolt.svc.cluster.local:3003
-  WEB_ORIGIN: https://REPLACE_WITH_AUTHENTICATED_ENTRYPOINT
+  # DNS corta: cada overlay vive en un namespace propio y no depende de nameSuffix.
+  STATION_SERVICE_URL: http://station-reservation:3001
+  BILLING_SERVICE_URL: http://billing-wallet:3002
+  DISPATCH_SERVICE_URL: http://energy-dispatch:3003
+  # La UI usa /graphql en el mismo ALB privado. Si se habilita un entrypoint
+  # público autenticado, el pipeline debe fijar explícitamente su origen antes
+  # de exponerlo; este valor seguro no autoriza navegadores externos por defecto.
+  WEB_ORIGIN: https://aegisvolt.invalid

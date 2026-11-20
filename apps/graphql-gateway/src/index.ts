@@ -11,7 +11,7 @@ const environment = parseEnvironment();
 const sagaTable = tableName('saga', environment);
 const flagsTable = tableName('flags', environment);
 const db = dynamoDocumentClient();
-const metrics = new Metrics();
+const metrics = new Metrics('graphql-gateway', environment, 'AegisVolt/Gateway');
 const urls = {
   station: process.env.STATION_SERVICE_URL ?? 'http://localhost:3001',
   billing: process.env.BILLING_SERVICE_URL ?? 'http://localhost:3002',
@@ -144,10 +144,10 @@ const compensate = async (initial: SagaItem, plan: Array<'REFUND' | 'RELEASE'>, 
       completed.add(step);
       saga = await record(saga.sagaId, 'COMPENSATING', { type: `${step}_SUCCEEDED`, status: 'SUCCEEDED' }, undefined, { compensationCompleted: [...completed] });
     }
-    metrics.increment('saga_compensated_total');
+    metrics.increment('SagaCompensated');
     return record(saga.sagaId, 'COMPENSATED', { type: 'COMPENSATION_COMPLETED', status: 'SUCCEEDED' }, cause, { compensationPlan: plan, compensationCompleted: [...completed] });
   } catch (error) {
-    const compensationError = toError(error); metrics.increment('saga_compensation_failed_total');
+    const compensationError = toError(error); metrics.increment('CompensationFailed');
     return record(saga.sagaId, 'COMPENSATION_FAILED', { type: 'COMPENSATION_FAILED', status: 'FAILED', detail: compensationError.code }, compensationError, { compensationPlan: plan, compensationCompleted: [...completed] });
   }
 };
@@ -176,12 +176,12 @@ const executeSaga = async (original: SagaItem, flags: FeatureFlags): Promise<Sag
         saga = await record(saga.sagaId, 'ACTIVATING', { type: 'ACTIVATE_SUCCEEDED', status: 'SUCCEEDED' }, undefined, { sessionId: result.session.sessionId });
         await stationClient.request(`/reservations/${saga.connectorId}/activate`, { method: 'POST', correlationId: saga.correlationId, body: { sagaId: saga.sagaId, sessionId: result.session.sessionId } });
         saga = await record(saga.sagaId, 'COMPLETED', { type: 'CONNECTOR_CHARGING_SUCCEEDED', status: 'SUCCEEDED' }, undefined, { sessionId: result.session.sessionId });
-        metrics.increment('saga_completed_total'); return saga;
+        metrics.increment('SagaCompleted'); return saga;
       } catch (error) { return compensate(saga, ['REFUND', 'RELEASE'], toError(error)); }
     }
     return saga;
   } catch (error) {
-    const failure = toError(error); metrics.increment('saga_failed_total');
+    const failure = toError(error); metrics.increment('SagaFailed');
     return record(saga.sagaId, saga.state, { type: 'SAGA_PAUSED_FOR_RECONCILIATION', status: 'FAILED', detail: failure.code }, failure);
   }
 };
@@ -253,8 +253,23 @@ const allowedOrigins = (process.env.WEB_ORIGIN ?? 'http://localhost:5173').split
 await app.register(cors, { origin: (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin)), methods: ['GET', 'POST'], allowedHeaders: ['content-type', 'x-correlation-id', 'x-aegisvolt-role'] });
 const yoga = createYoga<Context>({ schema, graphqlEndpoint: '/graphql', graphiql: process.env.NODE_ENV !== 'production', context: ({ request }) => ({ correlationId: request.headers.get('x-correlation-id') ?? randomUUID(), role: request.headers.get('x-aegisvolt-role') ?? (process.env.DEMO_AUTH === 'true' ? 'operator-demo' : 'anonymous') }) });
 app.route({ method: ['GET', 'POST'], url: '/graphql', handler: async (request, reply) => {
-  const response = await yoga.fetch('http://gateway.local/graphql', { method: request.method, headers: request.headers as Record<string, string>, body: request.method === 'GET' ? undefined : JSON.stringify(request.body) });
-  response.headers.forEach((value, name) => reply.header(name, value)); reply.code(response.status).send(await response.text());
+  const started = Date.now();
+  try {
+    if (process.env.DEMO_CANARY_FORCE_ERROR === 'true') {
+      metrics.increment('Requests'); metrics.increment('Http5xx'); metrics.observe('LatencyMs', Date.now() - started);
+      return reply.code(500).send({ errors: [{ message: 'Fallo intencional para demostrar rollback canary.', extensions: { code: 'DEMO_CANARY_FAILURE' } }] });
+    }
+    const response = await yoga.fetch('http://gateway.local/graphql', { method: request.method, headers: request.headers as Record<string, string>, body: request.method === 'GET' ? undefined : JSON.stringify(request.body) });
+    const body = await response.text();
+    metrics.increment('Requests');
+    metrics.observe('LatencyMs', Date.now() - started);
+    if (response.status >= 500) metrics.increment('Http5xx');
+    response.headers.forEach((value, name) => reply.header(name, value));
+    return reply.code(response.status).send(body);
+  } catch (error) {
+    metrics.increment('Requests'); metrics.increment('Http5xx'); metrics.observe('LatencyMs', Date.now() - started);
+    throw error;
+  }
 } });
 app.get('/health/live', async () => ({ status: 'ok', service: 'graphql-gateway', environment }));
 app.get('/health/ready', async (_request, reply) => {

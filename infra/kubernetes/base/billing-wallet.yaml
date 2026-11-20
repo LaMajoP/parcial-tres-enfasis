@@ -11,7 +11,7 @@ spec:
       securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
       containers:
         - name: app
-          image: REPLACE_AT_CD/billing-wallet@sha256:REPLACE_DIGEST
+          image: aegisvolt/billing-wallet:0.0.0
           command: [node, --import, tsx, services/billing-wallet-service/src/index.ts]
           ports: [{ containerPort: 3002, name: http }]
           envFrom: [{ configMapRef: { name: aegisvolt-runtime } }]

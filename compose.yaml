@@ -25,6 +25,12 @@ services:
     environment: *aws-local
     depends_on: { dynamodb-init: { condition: service_completed_successfully } }
     ports: ["3001:3001"]
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3001/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
     networks: [aegisvolt]
   billing-wallet-service:
     build: { context: ., target: runtime }
@@ -32,6 +38,12 @@ services:
     environment: *aws-local
     depends_on: { dynamodb-init: { condition: service_completed_successfully } }
     ports: ["3002:3002"]
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3002/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
     networks: [aegisvolt]
   energy-dispatch-service:
     build: { context: ., target: runtime }
@@ -39,6 +51,12 @@ services:
     environment: *aws-local
     depends_on: { dynamodb-init: { condition: service_completed_successfully } }
     ports: ["3003:3003"]
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3003/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
     networks: [aegisvolt]
   graphql-gateway:
     build: { context: ., target: runtime }
@@ -50,15 +68,30 @@ services:
       DISPATCH_SERVICE_URL: http://energy-dispatch-service:3003
       WEB_ORIGIN: http://localhost:5173
       DEMO_AUTH: "true"
-    depends_on: [station-reservation-service, billing-wallet-service, energy-dispatch-service]
+    depends_on:
+      station-reservation-service: { condition: service_healthy }
+      billing-wallet-service: { condition: service_healthy }
+      energy-dispatch-service: { condition: service_healthy }
     ports: ["4000:4000"]
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:4000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
     networks: [aegisvolt]
   web:
-    build: { context: ., target: runtime }
-    command: ["npm", "run", "start", "--workspace=@aegisvolt/web", "--", "--host", "0.0.0.0"]
-    environment: { VITE_GRAPHQL_URL: http://localhost:4000/graphql }
-    depends_on: [graphql-gateway]
-    ports: ["5173:5173"]
+    build:
+      context: .
+      target: web-runtime
+      args: { VITE_GRAPHQL_URL: http://localhost:4000/graphql }
+    depends_on: { graphql-gateway: { condition: service_healthy } }
+    ports: ["5173:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
     networks: [aegisvolt]
   prefect:
     image: prefecthq/prefect:3.1.15-python3.12

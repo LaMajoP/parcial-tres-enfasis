@@ -1,0 +1,43 @@
+name: Construir imágenes inmutables de desarrollo
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Commit de dev aprobado que se construirá una sola vez
+        required: true
+        type: string
+permissions: { contents: read, id-token: write }
+concurrency:
+  group: aegisvolt-image-build-${{ inputs.source_ref }}
+  cancel-in-progress: false
+jobs:
+  build-and-push:
+    # Solo un runner privado llega a ECR/VPC. Test y prod reciben el manifiesto
+    # de digests aprobado; no recompilan el mismo código.
+    runs-on: [self-hosted, linux, aegisvolt-private]
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "${{ inputs.source_ref }}"
+          fetch-depth: 0
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: "${{ vars.AWS_ROLE_ARN }}"
+          aws-region: "${{ vars.AWS_REGION }}"
+          role-session-name: aegisvolt-image-build
+      - name: Comprobar procedencia y lockfile
+        run: |
+          git merge-base --is-ancestor "${{ inputs.source_ref }}" origin/dev
+          test -f package-lock.json
+          npm ci --no-audit --no-fund
+      - name: Construir y publicar por digest
+        env:
+          IMAGE_TAG: "${{ inputs.source_ref }}"
+          AWS_REGION: "${{ vars.AWS_REGION }}"
+        run: scripts/build-publish-images.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "promoted-images-${{ inputs.source_ref }}"
+          path: promoted-images.json
+          if-no-files-found: error

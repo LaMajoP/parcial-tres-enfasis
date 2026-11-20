@@ -1,12 +1,37 @@
-# Acciones manuales en orden de dependencia
+# Acciones manuales, en orden de dependencia
 
-Estas son las únicas operaciones que requieren cuenta, aprobación o consola. Terraform crea recursos AegisVolt; no cree VPC, EKS, tablas ni endpoints manualmente.
+Este manual contiene solo accesos, aprobaciones o acciones externas. No cree manualmente VPC, EKS, tablas DynamoDB, endpoints, API Gateway ni grupos CloudWatch: Terraform los declara. No ejecute `apply` o destrucción sin presupuesto/aprobación.
 
-## 1. Preparar cuenta y presupuesto
+## 1. Recuperar ejecución local reproducible
 
-1. Inicie sesión con una cuenta AWS autorizada y elija una región que soporte EKS y dos AZ, por ejemplo `us-east-1`.
-2. En [Billing Budgets](https://console.aws.amazon.com/billing/home#/budgets), cree un budget mensual con alertas al 50 %, 80 % y 100 %. Guarde la confirmación.
-3. Configure identidad temporal, preferiblemente IAM Identity Center:
+1. En una red que resuelva npm, desde la raíz:
+
+   ```bash
+   bash scripts/generate-lockfile.sh
+   npm ci --no-audit --no-fund
+   git add package-lock.json .npmrc
+   git commit -m "chore: lock dependencias npm"
+   ```
+
+   Éxito esperado: existe un lockfile y `npm ci` termina en código 0. No publique `node_modules`.
+
+2. Verifique Docker con un usuario que pueda abrir `/var/run/docker.sock`:
+
+   ```bash
+   docker version
+   docker compose up --build -d
+   npm run seed
+   npm run test:integration
+   npm run test:e2e
+   docker compose down
+   ```
+
+   Éxito esperado: gateway y tres servicios `healthy`, pruebas verdes. Si Docker responde permiso denegado, resuelva la pertenencia al grupo/servicio con el administrador local; no use privilegios amplios en scripts del repositorio.
+
+## 2. Preparar AWS y presupuesto
+
+1. Elija región con EKS y al menos dos AZ (por ejemplo `us-east-1`) y cree presupuesto/alertas en [AWS Billing Budgets](https://console.aws.amazon.com/billing/home#/budgets) al 50 %, 80 % y 100 %.
+2. Configure una identidad temporal con IAM Identity Center:
 
    ```bash
    aws configure sso
@@ -14,15 +39,17 @@ Estas son las únicas operaciones que requieren cuenta, aprobación o consola. T
    AWS_PROFILE=aegisvolt-admin aws sts get-caller-identity
    ```
 
-   Evidencia esperada: Account y ARN del rol; no pegue secretos en el repositorio.
+3. Pida un rol Terraform de mínimo privilegio, MFA/SSO y permiso para los servicios declarados. Guarde ARN/account id fuera del repo; no cree access keys persistentes.
 
-4. Pida al administrador un rol inicial de Terraform con mínimo privilegio organizacional y MFA/SSO. Esta identidad bootstrap no es una credencial embebida del proyecto.
+## 3. Bootstrap remoto de state (una vez)
 
-## 2. Crear backend de estado (una vez por cuenta/región)
+1. Copie el ejemplo fuera de Git y complete bucket único, rol operador y owner:
 
-1. Copie el ejemplo sin versionarlo: `cp infra/terraform/bootstrap-state/terraform.tfvars.example /tmp/aegisvolt-bootstrap.tfvars`.
-2. Reemplace el bucket por uno único, el ARN del rol operador y owner.
-3. Ejecute y revise el plan:
+   ```bash
+   cp infra/terraform/bootstrap-state/terraform.tfvars.example /tmp/aegisvolt-bootstrap.tfvars
+   ```
+
+2. Revise y, solo con aprobación explícita de costo, aplique:
 
    ```bash
    AWS_PROFILE=aegisvolt-admin terraform -chdir=infra/terraform/bootstrap-state init
@@ -30,85 +57,104 @@ Estas son las únicas operaciones que requieren cuenta, aprobación o consola. T
    AWS_PROFILE=aegisvolt-admin terraform -chdir=infra/terraform/bootstrap-state apply -var-file=/tmp/aegisvolt-bootstrap.tfvars
    ```
 
-4. Guarde el output `state_bucket_name`. Compruebe bloqueo público, cifrado y versionamiento:
+3. Compruebe versión y acceso público bloqueado:
 
    ```bash
    aws s3api get-bucket-versioning --bucket REEMPLAZAR_BUCKET
    aws s3api get-public-access-block --bucket REEMPLAZAR_BUCKET
    ```
 
-## 3. Inicializar los tres estados
+## 4. Crear tres estados aislados
 
-1. Copie `infra/terraform/environments/terraform.tfvars.example` a `infra/terraform/environments/terraform.tfvars`, que está ignorado por Git. Complete valores reales.
-2. Inicialice el backend y cree/seleccione workspaces:
+1. Prepare `infra/terraform/environments/terraform.tfvars` desde el ejemplo (está ignorado). Después:
 
    ```bash
-   scripts/terraform-init.sh REEMPLAZAR_BUCKET us-east-1
+   bash scripts/terraform-init.sh REEMPLAZAR_BUCKET us-east-1
    terraform -chdir=infra/terraform/environments workspace list
    ```
 
-   Evidencia: `dev`, `test`, `prod`; no use `default`.
-3. Para cada ambiente, seleccione su workspace y **revise** plan. No ejecute apply sin presupuesto/aprobación:
+   Éxito esperado: `dev`, `test`, `prod`; no use `default`.
+
+2. Revise el plan sin aplicar para cada ambiente:
 
    ```bash
    terraform -chdir=infra/terraform/environments workspace select dev
    terraform -chdir=infra/terraform/environments plan -var-file=terraform.tfvars
    ```
 
-4. Tras un apply aprobado, compruebe claves y versiones. Con `workspace_key_prefix=env`, las claves no-default son `env:/dev/aegisvolt.tfstate`, etc.
+3. Tras apply autorizado, demuestre el historial y no edite state manualmente:
 
    ```bash
    aws s3api list-object-versions --bucket REEMPLAZAR_BUCKET --prefix 'env:/dev/aegisvolt.tfstate'
    aws s3api get-object --bucket REEMPLAZAR_BUCKET --key 'env:/dev/aegisvolt.tfstate' --version-id REEMPLAZAR_VERSION /tmp/aegisvolt-state-inspection.json
    ```
 
-   Para recuperación: guarde copia del state actual, revise el state histórico en `/tmp`, restaure por procedimiento aprobado/versionado S3 y corra `terraform plan` antes de cualquier apply. Nunca edite JSON state a mano.
+   Para recuperación, archive el state actual, inspeccione la versión en `/tmp`, acuerde el rollback y ejecute `terraform plan` antes de cualquier restauración aprobada.
 
-## 4. GitHub y gobernanza
+## 5. GitHub: ramas, rulesets y Environments
 
-1. Cree el repositorio privado en [GitHub](https://github.com/new), agregue remoto y publique el código tras revisar que `.env`/`*.tfvars` no viajen.
-2. Cree ramas desde `dev` exclusivamente:
+El remoto ya está configurado; no cree otro repositorio. Tras publicar los cambios revisados, cree ramas a partir de `dev`:
 
-   ```bash
-   scripts/create-branches.sh
-   git push -u origin dev test prod
-   ```
+```bash
+git switch -c dev main
+bash scripts/create-branches.sh
+git push -u origin dev test prod
+```
 
-3. Con un token `admin:repo_hook`/permisos de administración y GitHub CLI autenticada, ejecute:
+Con permisos de administración del repositorio:
 
-   ```bash
-   gh auth login
-   scripts/github-rulesets.sh ORGANIZACION/REPOSITORIO
-   ```
+```bash
+gh auth login
+bash scripts/github-rulesets.sh LaMajoP/parcial-tres-enfasis
+```
 
-   En Settings → Rules → Rulesets confirme PR obligatorio, no force-push, no borrado y checks `lint-build`, `unit-tests`, `integration-tests`, `e2e-tests`, `terraform-plan`. Pruebe el servidor remoto (en una rama descartable): `git push --force origin HEAD:dev`; la evidencia esperada es rechazo del servidor.
-4. En Settings → Environments cree `dev`, `test`, `prod`. En `prod` configure required reviewers antes del job de despliegue. Por ambiente agregue variables `AWS_ROLE_ARN`, `AWS_REGION`, `TF_STATE_BUCKET`, `TF_OWNER`, `VPC_CIDRS_JSON`, `AVAILABILITY_ZONES_JSON`, `EKS_CONTEXT`, `PROMOTED_IMAGE_DIGEST`.
-5. Configure el rol OIDC de GitHub en la cuenta con issuer `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com` y trust restringido a `repo:ORGANIZACION/REPOSITORIO:ref:refs/heads/<ambiente>`. El rol debe tener solo permisos necesarios para el plan/apply de ese ambiente y acceso al prefijo state correspondiente. Compruebe el claim en una ejecución de Actions; no use access keys persistentes.
+En GitHub, abra **Settings → Rules → Rulesets** y confirme para `dev`, `test`, `prod`: PR obligatoria, sin force-push/borrado, reviews y checks `lint-build`, `unit-tests`, `integration-tests`, `e2e-tests`, `terraform-plan`. Solo entonces pruebe desde una rama descartable:
 
-## 5. Desplegar AWS y entrada privada
+```bash
+git push --force origin HEAD:dev
+```
 
-1. Después del plan aprobado, ejecute el apply en cada workspace según la promoción permitida. Terraform crea VPC, endpoints, EKS, tablas, roles de servicio, ECR y grupos CloudWatch.
-2. Instale AWS Load Balancer Controller y Argo Rollouts con versiones compatibles con el EKS elegido, usando roles IRSA aprobados. Esto es un prerequisito de controller, no un recurso creado manualmente por AegisVolt.
-3. Publique las imágenes por digest, aplique el overlay del ambiente y espere probes:
+Éxito esperado: rechazo del servidor remoto. No lo sustituya por hooks locales.
 
-   ```bash
-   kubectl apply -k infra/kubernetes/overlays/test
-   kubectl -n aegisvolt-test get pods,svc,networkpolicy
-   kubectl -n aegisvolt-test describe pod REEMPLAZAR_POD
-   ```
+En **Settings → Environments**, cree `dev`, `test`, `prod`; configure reviewers obligatorios en `prod`. Por Environment declare variables no secretas:
 
-4. Cuando el Service `graphql-gateway` cree el NLB interno, copie ARN y DNS verificables como variables de Terraform, ponga `enable_private_api=true`, revise plan y aplique. El módulo crea REST API privada y VPC Link. Compruebe:
+- `AWS_ROLE_ARN`, `AWS_REGION`, `TF_STATE_BUCKET`, `TF_OWNER`
+- `VPC_CIDRS_JSON`, `AVAILABILITY_ZONES_JSON`
+- `PROMOTED_IMAGES_JSON` (objeto con cinco referencias ECR `@sha256`; nunca tags)
 
-   ```bash
-   aws apigateway get-rest-apis
-   aws ec2 describe-vpc-endpoints --filters Name=vpc-endpoint-type,Values=Interface
-   kubectl -n aegisvolt-test get svc graphql-gateway -o wide
-   ```
+Configure trust OIDC con issuer `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com` y subject restringido a `repo:LaMajoP/parcial-tres-enfasis:ref:refs/heads/<ambiente>`. El rol de cada ambiente debe limitar state/prefijos y recursos del ambiente correspondiente.
 
-5. Desde una red conectada (VPN/host dentro VPC), resuelva e invoque la URL privada. Desde Internet debe fallar; esa es la conducta esperada. Confirme que `SourceVpce` de la llamada coincide con el VPCE configurado.
+## 6. Runner privado y controllers EKS
 
-## 6. CloudWatch, Prefect y evidencia
+Antes de permitir el CD, registre un runner GitHub autohospedado etiquetado `self-hosted`, `linux`, `aegisvolt-private` dentro de la VPC o conectado por VPN. Instale Docker, AWS CLI, Terraform, kubectl, kustomize, jq y el plugin Argo Rollouts. El endpoint EKS es privado: un hosted runner público no es válido.
 
-1. Abra CloudWatch → Logs Insights y use las consultas de `observability/cloudwatch/logs-insights.queries.md` sobre `/aegisvolt/<env>/*`.
-2. Para local, abra `http://localhost:4200`; cree un work pool `aegisvolt-local`, instale `observability/prefect/requirements.txt`, despliegue `prefect.yaml` y ejecute un run. Para AWS use una identidad solo lectura a la tabla SAGA correspondiente y URLs privadas del gateway.
-3. Capture solo evidencia real indicada en [EVIDENCIAS_A_OBTENER.md](EVIDENCIAS_A_OBTENER.md).
+Después del apply autorizado instale, con sus roles IAM mínimos, AWS Load Balancer Controller y Argo Rollouts compatibles con la versión EKS. Compruebe:
+
+```bash
+kubectl -n kube-system get deployment aws-load-balancer-controller
+kubectl -n argo-rollouts get deployment argo-rollouts
+```
+
+El CD anotará los ServiceAccounts con los roles Terraform por IRSA y aplicará los digests. No pegue ARNs en los YAML.
+
+## 7. Construir una vez y promover
+
+1. Tras merge validado a `dev`, el job `build_dev_images` construye y publica una vez, tras `infrastructure`, y adjunta `promoted-images-<SHA>.json`. Si falló antes de publicar, use **Actions → Construir imágenes inmutables de desarrollo → Run workflow** con ese SHA de dev; no use el workflow manual para recompilar un tag ya existente.
+2. Descargue `promoted-images-<SHA>/promoted-images.json`. Revise que contenga exactamente `graphql-gateway`, `station-reservation`, `billing-wallet`, `energy-dispatch`, `web`, todos con `@sha256`.
+3. Copie ese JSON exacto a `PROMOTED_IMAGES_JSON` de **test** y luego **prod** al avanzar el mismo artefacto. El CD de dev usa el output del build; el de test/prod se bloquea si falta JSON o contiene tags.
+4. Promueva solo por PR `feature/* → dev`, `dev → test`, `test → prod`; no recompila test/prod.
+
+## 8. Red privada, observabilidad y evidencia
+
+Una vez EKS/ALB estén listos, espere el Service `graphql-gateway-stable` de tipo `LoadBalancer`: AWS Load Balancer Controller creará el **NLB interno**. Entregue su ARN/DNS verificable al `tfvars`, habilite `enable_private_api=true`, revise plan y aplique autorizado. Desde VPN/host interno:
+
+```bash
+aws ec2 describe-vpc-endpoints --filters Name=vpc-endpoint-type,Values=Interface
+kubectl -n aegisvolt-test get ingress,svc,rollout,analysisrun
+kubectl -n aegisvolt-test get svc graphql-gateway-stable -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+kubectl -n aegisvolt-test argo rollouts get rollout graphql-gateway
+```
+
+Pruebe que la API privada se invoca desde el VPCE correcto y falla desde Internet. En CloudWatch → Logs Insights seleccione `/aegisvolt/<env>/*` y ejecute las consultas de `observability/cloudwatch/logs-insights.queries.md`. Para Prefect local abra `http://localhost:4200`, cree pool `aegisvolt-local`, instale `observability/prefect/requirements.txt`, despliegue `prefect.yaml` y lance un run read-only.
+
+Capture únicamente las evidencias de `EVIDENCIAS_A_OBTENER.md`; actualice resultados con salida verdadera.

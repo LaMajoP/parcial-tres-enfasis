@@ -7,7 +7,7 @@ import { Metrics, log } from '@aegisvolt/shared-observability';
 const environment = parseEnvironment();
 const table = tableName('billing', environment);
 const db = dynamoDocumentClient();
-const metrics = new Metrics();
+const metrics = new Metrics('billing-wallet-service', environment);
 const app = Fastify({ logger: false, requestIdHeader: 'x-correlation-id' });
 type WalletItem = Wallet & { PK: string; SK: string };
 type MovementItem = Movement & { PK: string; SK: string; fleetId: string };
@@ -86,28 +86,32 @@ const changeBalance = async (input: { fleetId: string; amountCents: number; saga
 
 app.post('/debits', async (request, reply) => {
   const started = Date.now();
+  let context: { correlationId?: string; sagaId?: string } = {};
   try {
     const body = DebitWalletSchema.parse(request.body);
-    const result = await changeBalance(body, 'DEBIT'); metrics.increment('wallet_debit_total');
+    context = body;
+    const result = await changeBalance(body, 'DEBIT'); metrics.increment('WalletDebit');
     log({ service: 'billing-wallet-service', environment, operation: 'debit_wallet', status: 'SUCCEEDED', correlation_id: body.correlationId, saga_id: body.sagaId, duration_ms: Date.now() - started });
     return reply.code(result.idempotent ? 200 : 201).send(result);
   } catch (error) {
-    const failure = errorPayload(error); metrics.increment('wallet_debit_failure_total');
-    log({ level: 'ERROR', service: 'billing-wallet-service', environment, operation: 'debit_wallet', status: 'FAILED', error_code: failure.code, duration_ms: Date.now() - started });
+    const failure = errorPayload(error); metrics.increment('WalletDebitFailed');
+    log({ level: 'ERROR', service: 'billing-wallet-service', environment, operation: 'debit_wallet', status: 'FAILED', correlation_id: context.correlationId, saga_id: context.sagaId, error_code: failure.code, duration_ms: Date.now() - started });
     return reply.code(failure.code === 'INSUFFICIENT_FUNDS' ? 422 : 400).send(failure);
   }
 });
 
 app.post('/refunds', async (request, reply) => {
   const started = Date.now();
+  let context: { correlationId?: string; sagaId?: string } = {};
   try {
     const body = DebitWalletSchema.parse(request.body);
-    const result = await changeBalance(body, 'REFUND'); metrics.increment('wallet_refund_total');
+    context = body;
+    const result = await changeBalance(body, 'REFUND'); metrics.increment('WalletRefund');
     log({ service: 'billing-wallet-service', environment, operation: 'refund_wallet', status: 'SUCCEEDED', correlation_id: body.correlationId, saga_id: body.sagaId, duration_ms: Date.now() - started });
     return reply.code(result.idempotent ? 200 : 201).send(result);
   } catch (error) {
     const failure = errorPayload(error);
-    log({ level: 'ERROR', service: 'billing-wallet-service', environment, operation: 'refund_wallet', status: 'FAILED', error_code: failure.code, duration_ms: Date.now() - started });
+    log({ level: 'ERROR', service: 'billing-wallet-service', environment, operation: 'refund_wallet', status: 'FAILED', correlation_id: context.correlationId, saga_id: context.sagaId, error_code: failure.code, duration_ms: Date.now() - started });
     return reply.code(400).send(failure);
   }
 });

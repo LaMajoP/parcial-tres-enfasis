@@ -2,7 +2,7 @@
 
 ## Riesgos de costo
 
-EKS cobra plano de control por hora; nodos EC2, NLB/ALB, Interface VPC Endpoints, NAT Gateway, CloudWatch Logs/métricas y transferencia pueden facturar aunque haya poco tráfico. Producción con dos AZ incrementa disponibilidad y costo. La estimación exacta depende de región, tipos, uso y precios vigentes: usar AWS Pricing Calculator y un AWS Budget antes de `apply`.
+EKS cobra plano de control por hora; nodos EC2, NLB/ALB, Interface VPC Endpoints, NAT Gateway (si se habilita), ECR, CloudWatch Logs/métricas, transferencia y un runner privado pueden facturar aunque haya poco tráfico. Producción con dos AZ incrementa disponibilidad y costo. La estimación exacta depende de región, tipos, uso y precios vigentes: usar AWS Pricing Calculator y un AWS Budget antes de `apply`.
 
 ## Perfiles
 
@@ -12,6 +12,8 @@ EKS cobra plano de control por hora; nodos EC2, NLB/ALB, Interface VPC Endpoints
 | Kind | Validación de manifiestos/controlador local | Ninguno de AWS; consume equipo local |
 | AWS laboratorio | VPC/EKS/VPCE/API privados | Costos continuos y variables |
 | AWS producción | Dos AZ, retención mayor, alertas | Mayor costo, aislamiento fuerte |
+
+El perfil actual evita NAT por defecto y declara endpoints necesarios; los Interface VPCE y los balanceadores siguen teniendo costo. No habilite la API privada hasta contar con NLB interno verificable, VPN/host de prueba y presupuesto.
 
 ## Apagado seguro
 

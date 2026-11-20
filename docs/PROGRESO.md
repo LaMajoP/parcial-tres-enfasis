@@ -4,17 +4,17 @@ Leyenda: `IMPLEMENTADO` tiene artefactos de código; `NO VERIFICADO` requiere un
 
 | Fase | Estado | Evidencia / nota |
 |---|---|---|
-| A. Inspección y diseño | IMPLEMENTADO | Guía complementaria leída; PDF presente pero streams dañados/no hay extractor. Limitación registrada. ADRs, modelo y diagramas creados. |
-| B. Vertical slice DynamoDB Local, servicios, SAGA y GraphQL | IMPLEMENTADO / NO VERIFICADO | Código en `services/*`, `apps/graphql-gateway`, Compose y pruebas de integración. npm/Docker impidieron ejecución aquí. |
-| C. Flags, resiliencia y frontend | IMPLEMENTADO / NO VERIFICADO | Flags persistentes por tabla, control de rol, retry/bulkhead/circuit y React/UI/E2E. Requiere npm/Docker para ejecución. |
-| D. Kubernetes y observabilidad | IMPLEMENTADO / NO VERIFICADO | Base/overlays/rollouts, logs, Prefect flow. Kind/Prefect no ejecutables en sandbox. |
-| E. Terraform | IMPLEMENTADO / NO VERIFICADO | Bootstrap y módulos entregados. Terraform no está instalado y AWS no está autorizado. |
-| F. Git, CI/CD y canary | IMPLEMENTADO / NO VERIFICADO | Workflows, rulesets y Argo manifests listos. No hay remoto/EKS/CloudWatch. |
-| G. Auditoría final contra rúbrica | PARCIAL | Matriz, demo, manual, preguntas y resultados creados; queda verificación externa real. |
+| A. Inspección y diseño | IMPLEMENTADO | Especificación oficial transcrita y guía complementaria leídas completas; ADRs, modelo y diagramas creados. |
+| B. Vertical slice DynamoDB Local, servicios, SAGA y GraphQL | IMPLEMENTADO / NO VERIFICADO | Servicios, gateway, Compose, readiness y pruebas de integración existen. `npm ci`/Docker no pudieron ejecutarse en sandbox. |
+| C. Flags, resiliencia y frontend | IMPLEMENTADO / NO VERIFICADO | Flags persistentes, UI conectada, timeout sin sesión fantasma y pruebas. Requiere npm/Docker para ejecución. |
+| D. Kubernetes y observabilidad | IMPLEMENTADO / PARCIAL | Rollout único 20/80, políticas DNS/web, target nginx, Fluent Bit/EMF y Prefect. YAML/contratos estáticos verificados; Kind/EKS/CloudWatch bloqueados. |
+| E. Terraform | IMPLEMENTADO / NO VERIFICADO | Bootstrap/módulos, roles IRSA Fluent Bit, dashboard/alarmas alineados. Terraform/AWS no disponibles/autorizados. |
+| F. Git, CI/CD y canary | IMPLEMENTADO / PARCIAL | Workflows YAML corregidos, plan base-ref, CD private runner/digests, build-release y checks estáticos. No hubo push, ejecución Actions ni EKS. |
+| G. Auditoría final contra rúbrica | PARCIAL | Auditoría contra PDF, orden final, matriz, demo, manual y resultados actualizados. Pendiente evidencia externa real. |
 
 ## Condiciones bloqueantes observadas
 
-- Registro npm: `EAI_AGAIN` al resolver `registry.npmjs.org`; no se instalaron dependencias ni generó lockfile.
+- Registro npm: `EAI_AGAIN` al resolver `registry.npmjs.org`; no se instalaron dependencias ni generó `package-lock.json` real.
 - Docker: el cliente existe, pero el socket `/var/run/docker.sock` devuelve permiso denegado.
 - Terraform, Kind, kubectl y Helm no están disponibles en PATH.
-- No hay repositorio Git inicializado/remoto ni credenciales AWS/GitHub.
+- Git existe en `main` con `origin` configurado; la resolución DNS impidió consultar/push al remoto. No hay credenciales AWS utilizables ni autorización de despliegue.

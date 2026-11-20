@@ -1,0 +1,11 @@
+# Kind verifica objetos, probes y el controlador Argo. No simula ALB ni
+# CloudWatch: se elimina solo el traffic routing AWS de esta variante local.
+namespace: aegisvolt-dev
+resources: [../dev]
+patches:
+  - target: { group: argoproj.io, version: v1alpha1, kind: Rollout, name: graphql-gateway }
+    patch: |-
+      - op: remove
+        path: /spec/strategy/canary/trafficRouting
+      - op: remove
+        path: /spec/strategy/canary/steps/2

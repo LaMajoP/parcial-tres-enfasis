@@ -1,7 +1,9 @@
-# Solo para demo controlada: usar un digest que responde 500 en /health/ready; nunca promoverlo como release.
+# Solo para demo controlada: el target Docker `gateway-defective` conserva
+# /health/ready pero devuelve 500 en /graphql, alimentando AnalysisRun.
+# Reemplace por un digest ECR real antes de aplicar; nunca promoverla.
 spec:
   template:
     spec:
       containers:
         - name: app
-          image: REPLACE_AT_CD/graphql-gateway-defective@sha256:REPLACE_DEFECTIVE_DIGEST
+          image: aegisvolt/graphql-gateway-defective:0.0.0

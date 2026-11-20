@@ -7,7 +7,7 @@ import { Metrics, log } from '@aegisvolt/shared-observability';
 const environment = parseEnvironment();
 const table = tableName('reservations', environment);
 const db = dynamoDocumentClient();
-const metrics = new Metrics();
+const metrics = new Metrics('station-reservation-service', environment);
 const app = Fastify({ logger: false, requestIdHeader: 'x-correlation-id' });
 
 type ConnectorItem = Connector & { PK: string; SK: string; expiresAt?: number; sagaId?: string; fleetId?: string; updatedAt: string };
@@ -64,8 +64,10 @@ app.post('/seed', async (_request, reply) => {
 
 app.post('/reservations', async (request, reply) => {
   const started = Date.now();
+  let context: { correlationId?: string; sagaId?: string } = {};
   try {
     const body = ReserveConnectorSchema.parse(request.body);
+    context = body;
     const existing = await getConnector(body.connectorId);
     if (!existing) throw new DomainError('CONNECTOR_NOT_FOUND', 'El conector solicitado no existe.');
     if (existing.sagaId === body.sagaId && existing.state === 'RESERVED') return { reservation: asConnector(existing), idempotent: true };
@@ -86,12 +88,12 @@ app.post('/reservations', async (request, reply) => {
       throw error;
     }
     const reserved = await getConnector(body.connectorId);
-    metrics.increment('reservation_success_total');
+    metrics.increment('ReservationSucceeded');
     log({ service: 'station-reservation-service', environment, operation: 'reserve_connector', status: 'SUCCEEDED', correlation_id: body.correlationId, saga_id: body.sagaId, duration_ms: Date.now() - started });
     return reply.code(201).send({ reservation: asConnector(reserved!), idempotent: false });
   } catch (error) {
-    const failure = serviceError(error); metrics.increment('reservation_failure_total');
-    log({ level: 'ERROR', service: 'station-reservation-service', environment, operation: 'reserve_connector', status: 'FAILED', error_code: failure.code, duration_ms: Date.now() - started });
+    const failure = serviceError(error); metrics.increment('ReservationFailed');
+    log({ level: 'ERROR', service: 'station-reservation-service', environment, operation: 'reserve_connector', status: 'FAILED', correlation_id: context.correlationId, saga_id: context.sagaId, error_code: failure.code, duration_ms: Date.now() - started });
     return reply.code(failure.code === 'CONNECTOR_UNAVAILABLE' ? 409 : 400).send(failure);
   }
 });

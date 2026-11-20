@@ -2,35 +2,107 @@ name: CD — promoción por rama
 on:
   push:
     branches: [dev, test, prod]
-permissions: { contents: read, id-token: write, packages: read }
+permissions: { contents: read, id-token: write }
 concurrency:
   group: terraform-apply-${{ github.ref_name }}
   cancel-in-progress: false
 jobs:
-  deploy:
-    runs-on: ubuntu-24.04
-    environment: ${{ github.ref_name }} # prod requiere aprobación en GitHub Environment antes de este job.
+  infrastructure:
+    # EKS es privado. Este runner, administrado fuera del repositorio, debe vivir
+    # en la VPC o llegar por VPN; un hosted runner no puede fingir conectividad.
+    runs-on: [self-hosted, linux, aegisvolt-private]
+    environment: "${{ github.ref_name }}"
+    outputs:
+      cluster_name: "${{ steps.outputs.outputs.cluster_name }}"
+      service_roles: "${{ steps.outputs.outputs.service_roles }}"
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
       - uses: aws-actions/configure-aws-credentials@v4
-        with: { role-to-assume: ${{ vars.AWS_ROLE_ARN }}, aws-region: ${{ vars.AWS_REGION }}, role-session-name: aegisvolt-${{ github.ref_name }}-deploy }
+        with:
+          role-to-assume: "${{ vars.AWS_ROLE_ARN }}"
+          aws-region: "${{ vars.AWS_REGION }}"
+          role-session-name: "aegisvolt-${{ github.ref_name }}-deploy"
       - name: Aplicar solo el workspace de la rama actualizada
         env:
-          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
-          TF_VAR_owner: ${{ vars.TF_OWNER }}
-          TF_VAR_github_repository: ${{ github.repository }}
-          TF_VAR_vpc_cidrs: ${{ vars.VPC_CIDRS_JSON }}
-          TF_VAR_availability_zones: ${{ vars.AVAILABILITY_ZONES_JSON }}
+          TF_VAR_aws_region: "${{ vars.AWS_REGION }}"
+          TF_VAR_owner: "${{ vars.TF_OWNER }}"
+          TF_VAR_github_repository: "${{ github.repository }}"
+          TF_VAR_vpc_cidrs: "${{ vars.VPC_CIDRS_JSON }}"
+          TF_VAR_availability_zones: "${{ vars.AVAILABILITY_ZONES_JSON }}"
         run: |
           test -n "${{ vars.TF_STATE_BUCKET }}" || { echo "TF_STATE_BUCKET obligatorio"; exit 1; }
           terraform -chdir=infra/terraform/environments init -reconfigure -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
           terraform -chdir=infra/terraform/environments workspace select "${{ github.ref_name }}"
           terraform -chdir=infra/terraform/environments apply -auto-approve
-      - name: Promover el digest validado sin recompilar
-        env: { IMAGE_DIGEST: ${{ vars.PROMOTED_IMAGE_DIGEST }} }
+      - id: outputs
+        name: Exportar únicamente outputs no secretos para la promoción
         run: |
-          test -n "$IMAGE_DIGEST" || { echo "PROMOTED_IMAGE_DIGEST debe ser el digest aprobado del pipeline anterior"; exit 1; }
-          kubectl config use-context "${{ vars.EKS_CONTEXT }}"
-          kustomize build "infra/kubernetes/overlays/${{ github.ref_name }}" | kubectl apply -f -
-          kubectl -n "aegisvolt-${{ github.ref_name }}" rollout status deployment/graphql-gateway --timeout=5m
+          printf 'cluster_name=%s\n' "$(terraform -chdir=infra/terraform/environments output -raw cluster_name)" >> "$GITHUB_OUTPUT"
+          printf 'service_roles=%s\n' "$(terraform -chdir=infra/terraform/environments output -json service_role_arns)" >> "$GITHUB_OUTPUT"
+  build_dev_images:
+    needs: infrastructure
+    if: ${{ github.ref_name == 'dev' }}
+    runs-on: [self-hosted, linux, aegisvolt-private]
+    environment: dev
+    outputs:
+      images: "${{ steps.images.outputs.images }}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: "${{ vars.AWS_ROLE_ARN }}"
+          aws-region: "${{ vars.AWS_REGION }}"
+          role-session-name: aegisvolt-dev-image-build
+      - name: Construir una vez el commit de dev y publicar por digest
+        env:
+          AWS_REGION: "${{ vars.AWS_REGION }}"
+          IMAGE_TAG: "${{ github.sha }}"
+        run: |
+          npm ci --no-audit --no-fund
+          scripts/build-publish-images.sh
+      - id: images
+        name: Exportar manifiesto de promoción
+        run: |
+          printf 'images=%s\n' "$(jq -c . promoted-images.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: { name: "promoted-images-${{ github.sha }}", path: promoted-images.json, if-no-files-found: error }
+  deploy:
+    needs: [infrastructure, build_dev_images]
+    if: ${{ always() && needs.infrastructure.result == 'success' && (github.ref_name != 'dev' || needs.build_dev_images.result == 'success') }}
+    runs-on: [self-hosted, linux, aegisvolt-private]
+    environment: "${{ github.ref_name }}" # prod exige aprobación antes de este job.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: "${{ vars.AWS_ROLE_ARN }}"
+          aws-region: "${{ vars.AWS_REGION }}"
+          role-session-name: "aegisvolt-${{ github.ref_name }}-rollout"
+      - name: Bloquear promoción sin manifiesto de digests aprobado
+        env:
+          PROMOTED_IMAGES_JSON: "${{ github.ref_name == 'dev' && needs.build_dev_images.outputs.images || vars.PROMOTED_IMAGES_JSON }}"
+        run: |
+          test -n "$PROMOTED_IMAGES_JSON" || { echo "PROMOTED_IMAGES_JSON debe contener los cinco digests aprobados; test/prod no recompilan."; exit 1; }
+          jq -e 'type == "object" and all(.[]; type == "string" and test("@sha256:[0-9a-f]{64}$"))' <<<"$PROMOTED_IMAGES_JSON" >/dev/null
+      - name: Conectar al EKS privado e inyectar identidades IRSA mínimas
+        env:
+          AWS_REGION: "${{ vars.AWS_REGION }}"
+          CLUSTER_NAME: "${{ needs.infrastructure.outputs.cluster_name }}"
+          SERVICE_ROLES: "${{ needs.infrastructure.outputs.service_roles }}"
+          ENVIRONMENT: "${{ github.ref_name }}"
+        run: |
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
+          namespace="aegisvolt-$ENVIRONMENT"
+          kubectl get namespace "$namespace" >/dev/null 2>&1 || kubectl create namespace "$namespace"
+          for mapping in station:station-reservation billing:billing-wallet dispatch:energy-dispatch gateway:graphql-gateway fluentbit:aws-for-fluent-bit; do
+            key="${mapping%%:*}"; service_account="${mapping##*:}"
+            role="$(jq -r --arg key "$key" '.[$key] // empty' <<<"$SERVICE_ROLES")"
+            test -n "$role" || { echo "Falta rol IRSA para $key"; exit 1; }
+            kubectl -n "$namespace" create serviceaccount "$service_account" --dry-run=client -o yaml | kubectl apply -f -
+            kubectl -n "$namespace" annotate serviceaccount "$service_account" "eks.amazonaws.com/role-arn=$role" --overwrite
+          done
+      - name: Aplicar digests inmutables y esperar AnalysisRun de Argo
+        env:
+          PROMOTED_IMAGES_JSON: "${{ github.ref_name == 'dev' && needs.build_dev_images.outputs.images || vars.PROMOTED_IMAGES_JSON }}"
+        run: scripts/deploy-kubernetes.sh "${{ github.ref_name }}"

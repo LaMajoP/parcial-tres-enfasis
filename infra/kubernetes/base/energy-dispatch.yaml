@@ -11,7 +11,7 @@ spec:
       securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
       containers:
         - name: app
-          image: REPLACE_AT_CD/energy-dispatch@sha256:REPLACE_DIGEST
+          image: aegisvolt/energy-dispatch:0.0.0
           command: [node, --import, tsx, services/energy-dispatch-service/src/index.ts]
           ports: [{ containerPort: 3003, name: http }]
           envFrom: [{ configMapRef: { name: aegisvolt-runtime } }]

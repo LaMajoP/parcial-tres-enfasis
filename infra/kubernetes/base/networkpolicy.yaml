@@ -3,9 +3,22 @@ kind: NetworkPolicy
 metadata: { name: default-deny, namespace: aegisvolt }
 spec: { podSelector: {}, policyTypes: [Ingress, Egress] }
 ---
+# Sin esta excepción el default-deny bloquea CoreDNS y los servicios no resuelven DNS interno.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
-metadata: { name: gateway-to-services, namespace: aegisvolt }
+metadata: { name: allow-dns, namespace: aegisvolt }
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: domain-service-ingress-egress, namespace: aegisvolt }
 spec:
   podSelector: { matchLabels: { aegisvolt.io/component: domain-service } }
   policyTypes: [Ingress, Egress]
@@ -13,6 +26,7 @@ spec:
     - from: [{ podSelector: { matchLabels: { app: graphql-gateway } } }]
       ports: [{ protocol: TCP, port: 3001 }, { protocol: TCP, port: 3002 }, { protocol: TCP, port: 3003 }]
   egress:
+    # VPCE de DynamoDB/CloudWatch/ECR usa TLS; no abre puertos de los pods a Internet.
     - to: [{ ipBlock: { cidr: 0.0.0.0/0 } }]
       ports: [{ protocol: TCP, port: 443 }]
 ---
@@ -22,9 +36,20 @@ metadata: { name: gateway-ingress-egress, namespace: aegisvolt }
 spec:
   podSelector: { matchLabels: { app: graphql-gateway } }
   policyTypes: [Ingress, Egress]
-  ingress: [{ ports: [{ protocol: TCP, port: 4000 }] }]
+  ingress:
+    # ALB/NLB e ingress controller no comparten necesariamente namespace; se limita al puerto de aplicación.
+    - ports: [{ protocol: TCP, port: 4000 }]
   egress:
     - to: [{ podSelector: { matchLabels: { aegisvolt.io/component: domain-service } } }]
       ports: [{ protocol: TCP, port: 3001 }, { protocol: TCP, port: 3002 }, { protocol: TCP, port: 3003 }]
     - to: [{ ipBlock: { cidr: 0.0.0.0/0 } }]
       ports: [{ protocol: TCP, port: 443 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: web-ingress, namespace: aegisvolt }
+spec:
+  podSelector: { matchLabels: { app: web } }
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{ protocol: TCP, port: 5173 }]

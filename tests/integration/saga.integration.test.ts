@@ -33,6 +33,9 @@ describe('SAGA contra DynamoDB Local y servicios reales', () => {
     const second = await gql<{ reserveAndStartCharging: { saga: { sagaId: string; state: string } } }>(mutation, { input });
     expect(second.reserveAndStartCharging.saga.sagaId).toBe(first.reserveAndStartCharging.saga.sagaId);
     expect(second.reserveAndStartCharging.saga.state).toBe('COMPLETED');
+    const billing = process.env.BILLING_SERVICE_URL ?? 'http://localhost:3002';
+    const movements = await (await fetch(`${billing}/movements/fleet-demo`)).json() as { movements: Array<{ idempotencyKey: string; type: string }> };
+    expect(movements.movements.filter((movement) => movement.idempotencyKey === `${input.idempotencyKey}:debit` && movement.type === 'DEBIT')).toHaveLength(1);
     await gql('mutation Close($id:ID!){ closeCharging(sagaId:$id){ state } }', { id: first.reserveAndStartCharging.saga.sagaId });
   });
   it('una falla física reembolsa antes de liberar el conector', async () => {
@@ -42,5 +45,17 @@ describe('SAGA contra DynamoDB Local y servicios reales', () => {
     expect(result.reserveAndStartCharging.saga.state).toBe('COMPENSATED');
     expect(events.indexOf('REFUND_SUCCEEDED')).toBeLessThan(events.indexOf('RELEASE_SUCCEEDED'));
     await gql('mutation { setFeatureFlag(name:"SIMULATE_CHARGER_HARDWARE_FAULT",value:false){ value } }');
+  });
+  it('un timeout de dispatch falla de forma terminal sin dejar sesión activa', async () => {
+    const dispatch = process.env.DISPATCH_SERVICE_URL ?? 'http://localhost:3003';
+    const idempotencyKey = `it-timeout-${randomUUID()}`;
+    const response = await fetch(`${dispatch}/activate`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sagaId: randomUUID(), correlationId: randomUUID(), idempotencyKey, environment: 'dev', fleetId: 'fleet-demo', stationId: 'station-bogota-01', connectorId: 'connector-02', simulateTimeout: true })
+    });
+    expect(response.status).toBe(502);
+    expect((await response.json() as { code: string }).code).toBe('HARDWARE_TIMEOUT');
+    const sessions = await (await fetch(`${dispatch}/sessions`)).json() as { sessions: Array<{ idempotencyKey: string; state: string }> };
+    expect(sessions.sessions.find((session) => session.idempotencyKey === idempotencyKey)?.state).toBe('FAILED');
   });
 });

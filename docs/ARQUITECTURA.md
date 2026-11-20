@@ -19,7 +19,7 @@ DynamoDB TTL (`expiresAt`) elimina registros eventualmente y **no** libera de in
 
 ## Red AWS
 
-La topología prevista es privada: navegador autorizado → VPN/Client VPN o túnel/host corporativo → Interface VPCE `execute-api` → API Gateway REST privada (resource policy `aws:SourceVpce`) → VPC Link → NLB interno creado por el Service GraphQL → pods privados de EKS. Un Interface Endpoint `execute-api` solo permite al cliente dentro de VPC llegar a una API privada; no sustituye el VPC Link. El VPC Link es la conexión de API Gateway hacia el NLB/backend privado.
+La topología prevista es privada: navegador autorizado → VPN/Client VPN o túnel/host corporativo → Interface VPCE `execute-api` → API Gateway REST privada (resource policy `aws:SourceVpce`) → VPC Link → **NLB interno** creado por el Service `graphql-gateway-stable` de tipo `LoadBalancer` → pods privados de EKS. En paralelo, el Ingress interno crea un ALB para UI y canary ponderado; Argo Rollouts cambia sus target groups stable/canary. Un Interface Endpoint `execute-api` solo permite al cliente dentro de VPC llegar a una API privada; no sustituye el VPC Link. El VPC Link es la conexión de API Gateway hacia el NLB/backend privado.
 
 Para un navegador público opcional, la alternativa es un entrypoint autenticado independiente, con WAF/OIDC, que enruta al backend privado mediante VPC Link. No se promete que una API privada sea navegable desde Internet. Los pods no tienen IP pública.
 

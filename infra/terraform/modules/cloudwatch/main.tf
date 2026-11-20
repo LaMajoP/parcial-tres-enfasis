@@ -7,7 +7,7 @@ resource "aws_cloudwatch_log_group" "service" {
 }
 resource "aws_cloudwatch_metric_alarm" "saga_compensation_failure" {
   alarm_name = "aegisvolt-${var.environment}-saga-compensation-failed"
-  namespace = "AegisVolt/Saga"
+  namespace = "AegisVolt/Gateway"
   metric_name = "CompensationFailed"
   statistic = "Sum"
   period = 300
@@ -16,10 +16,24 @@ resource "aws_cloudwatch_metric_alarm" "saga_compensation_failure" {
   threshold = 0
   treat_missing_data = "notBreaching"
   alarm_description = "Una compensación requiere reconciliación manual/automática."
+  dimensions = { Environment = var.environment, Service = "graphql-gateway" }
   tags = var.tags
 }
 resource "aws_cloudwatch_dashboard" "operations" {
   dashboard_name = "aegisvolt-${var.environment}-operations"
-  dashboard_body = jsonencode({ widgets = [{ type = "metric", properties = { title = "SAGAs y latencia", view = "timeSeries", region = "${data.aws_region.current.name}", metrics = [["AegisVolt/Saga", "Completed", "Environment", var.environment], ["AegisVolt/Saga", "CompensationFailed", "Environment", var.environment]] } }] })
+  dashboard_body = jsonencode({ widgets = [{
+    type = "metric"
+    properties = {
+      title  = "Gateway: SAGAs, errores y p95"
+      view   = "timeSeries"
+      region = data.aws_region.current.name
+      metrics = [
+        ["AegisVolt/Gateway", "SagaCompleted", "Environment", var.environment, "Service", "graphql-gateway", { stat = "Sum" }],
+        [".", "CompensationFailed", ".", ".", ".", ".", { stat = "Sum" }],
+        [".", "Http5xx", ".", ".", ".", ".", { stat = "Sum" }],
+        [".", "LatencyMs", ".", ".", ".", ".", { stat = "p95" }]
+      ]
+    }
+  }] })
 }
 data "aws_region" "current" {}

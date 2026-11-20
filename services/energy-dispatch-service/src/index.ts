@@ -7,13 +7,12 @@ import { Metrics, log } from '@aegisvolt/shared-observability';
 const environment = parseEnvironment();
 const table = tableName('dispatch', environment);
 const db = dynamoDocumentClient();
-const metrics = new Metrics();
+const metrics = new Metrics('energy-dispatch-service', environment);
 const app = Fastify({ logger: false, requestIdHeader: 'x-correlation-id' });
 type ActivationRecord = { PK: string; SK: string; sessionId: string; state: string; errorCode?: string };
 type SessionItem = DispatchSession & { PK: string; SK: string; idempotencyKey: string; updatedAt: string };
 const activationKey = (idempotencyKey: string) => ({ PK: `ACTIVATION#${idempotencyKey}`, SK: 'META' });
 const sessionKey = (sessionId: string) => ({ PK: `SESSION#${sessionId}`, SK: 'META' });
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const getActivation = async (idempotencyKey: string): Promise<ActivationRecord | undefined> => (await db.send(new GetCommand({ TableName: table, Key: activationKey(idempotencyKey), ConsistentRead: true }))).Item as ActivationRecord | undefined;
 const getSession = async (sessionId: string): Promise<SessionItem | undefined> => (await db.send(new GetCommand({ TableName: table, Key: sessionKey(sessionId), ConsistentRead: true }))).Item as SessionItem | undefined;
@@ -49,8 +48,10 @@ app.post('/sessions/:sessionId/stop', async (request, reply) => {
 
 app.post('/activate', async (request, reply) => {
   const started = Date.now();
+  let context: { correlationId?: string; sagaId?: string } = {};
   try {
     const body = ActivateChargingSchema.parse(request.body);
+    context = body;
     const activation = await getActivation(body.idempotencyKey);
     if (activation) {
       const prior = await getSession(activation.sessionId);
@@ -68,10 +69,19 @@ app.post('/activate', async (request, reply) => {
         { Update: { TableName: table, Key: activationKey(body.idempotencyKey), UpdateExpression: 'SET #state = :failed, errorCode = :code', ExpressionAttributeNames: { '#state': 'state' }, ExpressionAttributeValues: { ':failed': 'FAILED', ':code': 'HARDWARE_FAULT' } } },
         { Update: { TableName: table, Key: sessionKey(sessionId), UpdateExpression: 'SET #state = :failed, updatedAt = :updatedAt', ExpressionAttributeNames: { '#state': 'state' }, ExpressionAttributeValues: { ':failed': 'FAILED', ':updatedAt': nowIso() } } }
       ] }));
-      metrics.increment('charger_hardware_fault_total');
+      metrics.increment('ChargerHardwareFault');
       throw new DomainError('HARDWARE_FAULT', 'El cargador simuló una falla física no reintentable.');
     }
-    if (body.simulateTimeout) await delay(Number(process.env.SIMULATED_TIMEOUT_MS ?? 3_000));
+    // Un timeout simulado debe dejar un estado físico terminal. Retrasar una
+    // activación y responder después del timeout del gateway produciría una
+    // sesión fantasma: la SAGA compensaría mientras el cargador se activa.
+    if (body.simulateTimeout) {
+      await db.send(new TransactWriteCommand({ TransactItems: [
+        { Update: { TableName: table, Key: activationKey(body.idempotencyKey), UpdateExpression: 'SET #state = :failed, errorCode = :code', ExpressionAttributeNames: { '#state': 'state' }, ExpressionAttributeValues: { ':failed': 'FAILED', ':code': 'HARDWARE_TIMEOUT' } } },
+        { Update: { TableName: table, Key: sessionKey(sessionId), UpdateExpression: 'SET #state = :failed, updatedAt = :updatedAt', ExpressionAttributeNames: { '#state': 'state' }, ExpressionAttributeValues: { ':failed': 'FAILED', ':updatedAt': nowIso() } } }
+      ] }));
+      throw new DomainError('HARDWARE_TIMEOUT', 'El cargador simuló un timeout antes de activar.', true);
+    }
     await db.send(new TransactWriteCommand({ TransactItems: [
       { Update: { TableName: table, Key: activationKey(body.idempotencyKey), UpdateExpression: 'SET #state = :active', ExpressionAttributeNames: { '#state': 'state' }, ExpressionAttributeValues: { ':active': 'ACTIVE' } } },
       { Update: { TableName: table, Key: sessionKey(sessionId), UpdateExpression: 'SET #state = :active, updatedAt = :updatedAt', ExpressionAttributeNames: { '#state': 'state' }, ExpressionAttributeValues: { ':active': 'ACTIVE', ':updatedAt': nowIso() } } }
@@ -79,13 +89,13 @@ app.post('/activate', async (request, reply) => {
     const telemetry: Telemetry[] = [0, 1, 2].map((sample) => ({ sessionId, connectorId: body.connectorId, stationId: body.stationId, powerKw: 48 + sample, energyKwh: Number((sample * 0.82).toFixed(2)), timestamp: new Date(Date.now() + sample * 1_000).toISOString() }));
     for (const sample of telemetry) await db.send(new PutCommand({ TableName: table, Item: { ...sample, PK: `SESSION#${sessionId}`, SK: `TELEMETRY#${sample.timestamp}` } }));
     const active = await getSession(sessionId);
-    metrics.increment('charger_activation_total');
+    metrics.increment('ChargerActivation');
     log({ service: 'energy-dispatch-service', environment, operation: 'activate_charger', status: 'SUCCEEDED', correlation_id: body.correlationId, saga_id: body.sagaId, duration_ms: Date.now() - started });
     return reply.code(201).send({ session: active, telemetry, idempotent: false });
   } catch (error) {
     const domain = error instanceof DomainError ? error : new DomainError('DISPATCH_UNAVAILABLE', 'No fue posible activar el cargador.', true);
-    log({ level: 'ERROR', service: 'energy-dispatch-service', environment, operation: 'activate_charger', status: 'FAILED', error_code: domain.code, duration_ms: Date.now() - started });
-    return reply.code(domain.code === 'HARDWARE_FAULT' ? 502 : 400).send(domain);
+    log({ level: 'ERROR', service: 'energy-dispatch-service', environment, operation: 'activate_charger', status: 'FAILED', correlation_id: context.correlationId, saga_id: context.sagaId, error_code: domain.code, duration_ms: Date.now() - started });
+    return reply.code(['HARDWARE_FAULT', 'HARDWARE_TIMEOUT'].includes(domain.code) ? 502 : 400).send(domain);
   }
 });
 

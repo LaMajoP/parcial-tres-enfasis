@@ -1,17 +1,39 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata: { name: graphql-gateway, namespace: aegisvolt, labels: { app: graphql-gateway } }
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: graphql-gateway
+  namespace: aegisvolt
+  labels: { app: graphql-gateway }
 spec:
-  replicas: 2
-  selector: { matchLabels: { app: graphql-gateway } }
+  replicas: 4
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels: { app: graphql-gateway }
+  strategy:
+    canary:
+      stableService: graphql-gateway-stable
+      canaryService: graphql-gateway-canary
+      trafficRouting:
+        alb:
+          ingress: aegisvolt-private
+          rootService: graphql-gateway-stable
+          servicePort: 80
+      steps:
+        - setWeight: 20
+        - pause: { duration: 2m }
+        - analysis:
+            templates: [{ templateName: aegisvolt-cloudwatch-health }]
+            args: [{ name: environment, value: dev }]
+        - setWeight: 100
   template:
-    metadata: { labels: { app: graphql-gateway, aegisvolt.io/component: gateway } }
+    metadata:
+      labels: { app: graphql-gateway, aegisvolt.io/component: gateway }
     spec:
       serviceAccountName: graphql-gateway
       securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
       containers:
         - name: app
-          image: REPLACE_AT_CD/graphql-gateway@sha256:REPLACE_DIGEST
+          image: aegisvolt/graphql-gateway:0.0.0
           command: [node, --import, tsx, apps/graphql-gateway/src/index.ts]
           ports: [{ containerPort: 4000, name: http }]
           envFrom: [{ configMapRef: { name: aegisvolt-runtime } }]
@@ -24,12 +46,43 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: graphql-gateway
+  name: graphql-gateway-stable
   namespace: aegisvolt
   annotations:
+    # NLB interno para el VPC Link de la REST API privada. El ALB del Ingress
+    # también usa este Service como target group estable del Rollout.
+    service.beta.kubernetes.io/aws-load-balancer-type: external
     service.beta.kubernetes.io/aws-load-balancer-scheme: internal
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
 spec:
   type: LoadBalancer
   selector: { app: graphql-gateway }
   ports: [{ name: http, port: 80, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: graphql-gateway-canary, namespace: aegisvolt }
+spec: { selector: { app: graphql-gateway }, ports: [{ name: http, port: 80, targetPort: http }] }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aegisvolt-private
+  namespace: aegisvolt
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /graphql
+            pathType: Prefix
+            backend: { service: { name: graphql-gateway-stable, port: { number: 80 } } }
+          - path: /health
+            pathType: Prefix
+            backend: { service: { name: graphql-gateway-stable, port: { number: 80 } } }
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: web, port: { number: 80 } } }
