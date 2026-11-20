@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import { GetCommand, PutCommand, ScanCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
-import { DebitWalletSchema, DomainError, type Environment, type Movement, type Wallet, dynamoDocumentClient, nowIso, parseEnvironment, tableName } from '@aegisvolt/contracts';
+import { DebitWalletSchema, DomainError, type Movement, type Wallet, dynamoDocumentClient, nowIso, parseEnvironment, tableName } from '@aegisvolt/contracts';
 import { Metrics, log } from '@aegisvolt/shared-observability';
 
 const environment = parseEnvironment();

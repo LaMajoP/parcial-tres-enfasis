@@ -12,7 +12,11 @@ for (const url of readyUrls) {
   if (Date.now() - started >= 60_000) throw new Error(`Tiempo agotado esperando ${url}: ${lastError}`);
 }
 for (const service of services) {
-  const response = await fetch(`${service}/seed`, { method: 'POST', headers: { 'content-type': 'application/json' } });
+  const response = await fetch(`${service}/seed`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({})
+});
   if (!response.ok) throw new Error(`No se pudo sembrar ${service}: ${await response.text()}`);
   console.log(await response.text());
 }

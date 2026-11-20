@@ -1,7 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { DomainError, type Connector, type Environment, ReserveConnectorSchema, dynamoDocumentClient, epochSeconds, nowIso, parseEnvironment, tableName } from '@aegisvolt/contracts';
+import { DomainError, type Connector, ReserveConnectorSchema, dynamoDocumentClient, epochSeconds, nowIso, parseEnvironment, tableName } from '@aegisvolt/contracts';
 import { Metrics, log } from '@aegisvolt/shared-observability';
 
 const environment = parseEnvironment();
