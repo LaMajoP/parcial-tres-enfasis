@@ -30,10 +30,10 @@ module "vpc_endpoints" {
   tags                    = local.tags
 }
 module "dynamodb" {
-  source                    = "../modules/dynamodb"
-  environment               = local.environment
-  tags                      = local.tags
-  point_in_time_recovery    = !var.lab_profile
+  source                 = "../modules/dynamodb"
+  environment            = local.environment
+  tags                   = local.tags
+  point_in_time_recovery = !var.lab_profile
 }
 module "eks" {
   source             = "../modules/eks"
@@ -52,7 +52,11 @@ module "iam" {
   tags              = local.tags
 }
 data "aws_caller_identity" "current" {}
-module "ecr" { source = "../modules/ecr" environment = local.environment tags = local.tags }
+module "ecr" {
+  source      = "../modules/ecr"
+  environment = local.environment
+  tags        = local.tags
+}
 module "cloudwatch" {
   source             = "../modules/cloudwatch"
   environment        = local.environment

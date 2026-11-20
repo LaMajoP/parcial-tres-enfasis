@@ -25,10 +25,10 @@ resource "aws_api_gateway_resource" "graphql" {
   path_part   = "graphql"
 }
 resource "aws_api_gateway_method" "graphql_post" {
-  count       = local.create ? 1 : 0
-  rest_api_id = aws_api_gateway_rest_api.private[0].id
-  resource_id = aws_api_gateway_resource.graphql[0].id
-  http_method = "POST"
+  count         = local.create ? 1 : 0
+  rest_api_id   = aws_api_gateway_rest_api.private[0].id
+  resource_id   = aws_api_gateway_resource.graphql[0].id
+  http_method   = "POST"
   authorization = "NONE"
 }
 resource "aws_api_gateway_integration" "graphql" {

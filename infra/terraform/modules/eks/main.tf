@@ -1,18 +1,18 @@
 data "aws_partition" "current" {}
 
 resource "aws_iam_role" "cluster" {
-  name = "aegisvolt-${var.environment}-eks-cluster"
+  name               = "aegisvolt-${var.environment}-eks-cluster"
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Principal = { Service = "eks.amazonaws.com" }, Action = "sts:AssumeRole" }] })
-  tags = var.tags
+  tags               = var.tags
 }
 resource "aws_iam_role_policy_attachment" "cluster" {
   role       = aws_iam_role.cluster.name
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonEKSClusterPolicy"
 }
 resource "aws_iam_role" "nodes" {
-  name = "aegisvolt-${var.environment}-eks-nodes"
+  name               = "aegisvolt-${var.environment}-eks-nodes"
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" }, Action = "sts:AssumeRole" }] })
-  tags = var.tags
+  tags               = var.tags
 }
 resource "aws_iam_role_policy_attachment" "nodes_worker" {
   role       = aws_iam_role.nodes.name
@@ -36,8 +36,8 @@ resource "aws_eks_cluster" "this" {
     endpoint_public_access  = false
   }
   enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
-  depends_on = [aws_iam_role_policy_attachment.cluster]
-  tags       = var.tags
+  depends_on                = [aws_iam_role_policy_attachment.cluster]
+  tags                      = var.tags
 }
 data "tls_certificate" "oidc" {
   url = aws_eks_cluster.this.identity[0].oidc[0].issuer

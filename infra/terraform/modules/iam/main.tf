@@ -44,7 +44,7 @@ resource "aws_iam_role_policy" "dynamodb" {
   for_each = local.permissions
   name     = "dynamodb-domain-only"
   role     = aws_iam_role.service[each.key].id
-  policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query", "dynamodb:Scan", "dynamodb:TransactWriteItems"], Resource = each.value }] })
+  policy   = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query", "dynamodb:Scan", "dynamodb:TransactWriteItems"], Resource = each.value }] })
 }
 resource "aws_iam_role_policy" "fluent_bit_logs" {
   name = "cloudwatch-logs-environment-only"
@@ -53,8 +53,8 @@ resource "aws_iam_role_policy" "fluent_bit_logs" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
         Resource = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aegisvolt/${var.environment}/*:log-stream:*"
       },
       {
