@@ -27,7 +27,7 @@ COPY --from=build /workspace/services ./services
 COPY --from=build /workspace/packages ./packages
 COPY --from=build /workspace/scripts ./scripts
 COPY --from=build /workspace/package.json ./package.json
-USER node
+USER 1000:1000
 CMD ["node", "--import", "tsx", "apps/graphql-gateway/src/index.ts"]
 
 # La UI se distribuye como estáticos; no se ejecuta Vite de desarrollo en EKS.
