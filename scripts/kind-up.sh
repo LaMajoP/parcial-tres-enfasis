@@ -33,5 +33,5 @@ kubectl -n aegisvolt-dev rollout restart deployment/station-reservation deployme
 kubectl -n aegisvolt-dev rollout status deployment/station-reservation --timeout=3m
 kubectl -n aegisvolt-dev rollout status deployment/billing-wallet --timeout=3m
 kubectl -n aegisvolt-dev rollout status deployment/energy-dispatch --timeout=3m
-kubectl -n aegisvolt-dev argo rollouts status rollout/graphql-gateway --timeout=5m
+kubectl argo rollouts -n aegisvolt-dev status rollout/graphql-gateway --timeout=5m
 kubectl -n aegisvolt-dev get pods,services,rollouts
