@@ -9,3 +9,98 @@ patches:
         path: /spec/strategy/canary/trafficRouting
       - op: remove
         path: /spec/strategy/canary/steps/2
+
+
+  # AEGISVOLT_KIND_FIXES
+  # Directorio temporal escribible para Node/tsx y Nginx.
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: station-reservation
+    patch: |-
+      - op: add
+        path: /spec/template/spec/volumes
+        value:
+          - name: tmp
+            emptyDir: {}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts
+        value:
+          - name: tmp
+            mountPath: /tmp
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: billing-wallet
+    patch: |-
+      - op: add
+        path: /spec/template/spec/volumes
+        value:
+          - name: tmp
+            emptyDir: {}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts
+        value:
+          - name: tmp
+            mountPath: /tmp
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: energy-dispatch
+    patch: |-
+      - op: add
+        path: /spec/template/spec/volumes
+        value:
+          - name: tmp
+            emptyDir: {}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts
+        value:
+          - name: tmp
+            mountPath: /tmp
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: graphql-gateway
+    patch: |-
+      - op: add
+        path: /spec/template/spec/volumes
+        value:
+          - name: tmp
+            emptyDir: {}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts
+        value:
+          - name: tmp
+            mountPath: /tmp
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: web
+    patch: |-
+      - op: add
+        path: /spec/template/spec/volumes
+        value:
+          - name: tmp
+            emptyDir: {}
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts
+        value:
+          - name: tmp
+            mountPath: /tmp
+  # CloudWatch se desactiva solamente en Kind.
+  - target:
+      group: apps
+      version: v1
+      kind: DaemonSet
+      name: aws-for-fluent-bit
+    patch: |-
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          aegisvolt.io/cloudwatch: enabled
