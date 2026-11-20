@@ -1,0 +1,71 @@
+name: aegisvolt
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:2.5.3
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
+    ports: ["8000:8000"]
+    volumes: ["dynamodb-data:/home/dynamodblocal/data"]
+    networks: [aegisvolt]
+  dynamodb-init:
+    build: { context: ., target: runtime }
+    user: root
+    command: ["node", "scripts/bootstrap-dynamodb.mjs"]
+    environment: &aws-local
+      AEGISVOLT_ENV: dev
+      AWS_REGION: us-east-1
+      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      DEMO_MODE: "true"
+    depends_on: [dynamodb-local]
+    networks: [aegisvolt]
+  station-reservation-service:
+    build: { context: ., target: runtime }
+    command: ["node", "--import", "tsx", "services/station-reservation-service/src/index.ts"]
+    environment: *aws-local
+    depends_on: { dynamodb-init: { condition: service_completed_successfully } }
+    ports: ["3001:3001"]
+    networks: [aegisvolt]
+  billing-wallet-service:
+    build: { context: ., target: runtime }
+    command: ["node", "--import", "tsx", "services/billing-wallet-service/src/index.ts"]
+    environment: *aws-local
+    depends_on: { dynamodb-init: { condition: service_completed_successfully } }
+    ports: ["3002:3002"]
+    networks: [aegisvolt]
+  energy-dispatch-service:
+    build: { context: ., target: runtime }
+    command: ["node", "--import", "tsx", "services/energy-dispatch-service/src/index.ts"]
+    environment: *aws-local
+    depends_on: { dynamodb-init: { condition: service_completed_successfully } }
+    ports: ["3003:3003"]
+    networks: [aegisvolt]
+  graphql-gateway:
+    build: { context: ., target: runtime }
+    command: ["node", "--import", "tsx", "apps/graphql-gateway/src/index.ts"]
+    environment:
+      <<: *aws-local
+      STATION_SERVICE_URL: http://station-reservation-service:3001
+      BILLING_SERVICE_URL: http://billing-wallet-service:3002
+      DISPATCH_SERVICE_URL: http://energy-dispatch-service:3003
+      WEB_ORIGIN: http://localhost:5173
+      DEMO_AUTH: "true"
+    depends_on: [station-reservation-service, billing-wallet-service, energy-dispatch-service]
+    ports: ["4000:4000"]
+    networks: [aegisvolt]
+  web:
+    build: { context: ., target: runtime }
+    command: ["npm", "run", "start", "--workspace=@aegisvolt/web", "--", "--host", "0.0.0.0"]
+    environment: { VITE_GRAPHQL_URL: http://localhost:4000/graphql }
+    depends_on: [graphql-gateway]
+    ports: ["5173:5173"]
+    networks: [aegisvolt]
+  prefect:
+    image: prefecthq/prefect:3.1.15-python3.12
+    command: ["prefect", "server", "start", "--host", "0.0.0.0"]
+    ports: ["4200:4200"]
+    environment: { PREFECT_SERVER_API_HOST: 0.0.0.0 }
+    volumes: ["./observability/prefect:/opt/aegisvolt/prefect:ro"]
+    networks: [aegisvolt]
+volumes: { dynamodb-data: {} }
+networks: { aegisvolt: { driver: bridge } }

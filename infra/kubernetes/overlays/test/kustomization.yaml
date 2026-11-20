@@ -1,0 +1,24 @@
+namespace: aegisvolt-test
+resources: [../../base]
+nameSuffix: -test
+patches:
+  - target: { kind: ConfigMap, name: aegisvolt-runtime }
+    patch: |-
+      - op: replace
+        path: /data/AEGISVOLT_ENV
+        value: test
+      - op: replace
+        path: /data/TABLE_RESERVATIONS
+        value: aegisvolt-reservations-test
+      - op: replace
+        path: /data/TABLE_BILLING
+        value: aegisvolt-billing-test
+      - op: replace
+        path: /data/TABLE_DISPATCH
+        value: aegisvolt-dispatch-test
+      - op: replace
+        path: /data/TABLE_SAGA
+        value: aegisvolt-saga-test
+      - op: replace
+        path: /data/TABLE_FLAGS
+        value: aegisvolt-flags-test

@@ -1,0 +1,24 @@
+namespace: aegisvolt-dev
+resources: [../../base]
+nameSuffix: -dev
+patches:
+  - target: { kind: ConfigMap, name: aegisvolt-runtime }
+    patch: |-
+      - op: replace
+        path: /data/AEGISVOLT_ENV
+        value: dev
+      - op: replace
+        path: /data/TABLE_RESERVATIONS
+        value: aegisvolt-reservations-dev
+      - op: replace
+        path: /data/TABLE_BILLING
+        value: aegisvolt-billing-dev
+      - op: replace
+        path: /data/TABLE_DISPATCH
+        value: aegisvolt-dispatch-dev
+      - op: replace
+        path: /data/TABLE_SAGA
+        value: aegisvolt-saga-dev
+      - op: replace
+        path: /data/TABLE_FLAGS
+        value: aegisvolt-flags-dev

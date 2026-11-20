@@ -1,0 +1,11 @@
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - serviceaccounts.yaml
+  - station-reservation.yaml
+  - billing-wallet.yaml
+  - energy-dispatch.yaml
+  - graphql-gateway.yaml
+  - web.yaml
+  - networkpolicy.yaml
+  - pdb.yaml

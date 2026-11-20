@@ -1,0 +1,7 @@
+# Solo para demo controlada: usar un digest que responde 500 en /health/ready; nunca promoverlo como release.
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: REPLACE_AT_CD/graphql-gateway-defective@sha256:REPLACE_DEFECTIVE_DIGEST

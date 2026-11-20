@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata: { name: aegisvolt-cloudwatch-health, namespace: aegisvolt }
+spec:
+  metrics:
+    - name: http-error-rate
+      interval: 1m
+      failureLimit: 1
+      successCondition: result < 0.02
+      provider:
+        cloudWatch:
+          interval: 60
+          metricDataQueries:
+            - id: errorRate
+              returnData: true
+              expression: "IF((errors + requests) > 20, errors / (errors + requests), 1)"
+            - id: errors
+              metricStat: { metric: { namespace: "AegisVolt/Gateway", metricName: "Http5xx", dimensions: [{ name: "Environment", value: "REPLACE_ENV" }] }, period: 60, stat: Sum }
+              returnData: false
+            - id: requests
+              metricStat: { metric: { namespace: "AegisVolt/Gateway", metricName: "Requests", dimensions: [{ name: "Environment", value: "REPLACE_ENV" }] }, period: 60, stat: Sum }
+    - name: p95-latency
+      interval: 1m
+      failureLimit: 1
+      successCondition: result < 1000
+      provider:
+        cloudWatch:
+          interval: 60
+          metricDataQueries:
+            - id: p95
+              returnData: true
+              metricStat: { metric: { namespace: "AegisVolt/Gateway", metricName: "LatencyMs", dimensions: [{ name: "Environment", value: "REPLACE_ENV" }] }, period: 60, stat: p95 }

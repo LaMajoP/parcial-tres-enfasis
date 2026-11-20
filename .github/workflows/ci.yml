@@ -1,0 +1,95 @@
+name: CI de pull request
+on:
+  pull_request:
+    branches: [dev, test, prod]
+permissions: { contents: read, id-token: write }
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  target:
+    runs-on: ubuntu-24.04
+    outputs: { environment: ${{ steps.target.outputs.environment }} }
+    steps:
+      - id: target
+        run: echo "environment=${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+  lint-build:
+    needs: target
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm install --no-audit --no-fund
+      - run: npm run lint && npm run build && npm run test:graphql-schema
+  unit-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+  integration-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm install --no-audit --no-fund
+      - run: docker compose up -d dynamodb-local dynamodb-init station-reservation-service billing-wallet-service energy-dispatch-service graphql-gateway
+      - run: node scripts/seed.mjs
+      - run: npm run test:integration
+      - if: always()
+        run: docker compose logs --no-color > compose-integration.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: compose-integration, path: compose-integration.log, if-no-files-found: warn }
+  e2e-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: docker compose up -d --build
+      - run: node scripts/seed.mjs
+      - run: npm run test:e2e
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: playwright-report, path: playwright-report, if-no-files-found: warn }
+  terraform-offline:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive infra/terraform
+      - run: terraform -chdir=infra/terraform/environments init -backend=false && terraform -chdir=infra/terraform/environments validate
+  terraform-plan:
+    needs: target
+    runs-on: ubuntu-24.04
+    environment: ${{ needs.target.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Bloquear plan sin OIDC/backend autorizado
+        run: |
+          test -n "${{ vars.AWS_ROLE_ARN }}" || { echo "AWS_ROLE_ARN de GitHub Environment es obligatorio: el plan real no se reemplaza por echo."; exit 1; }
+          test -n "${{ vars.TF_STATE_BUCKET }}" || { echo "TF_STATE_BUCKET es obligatorio"; exit 1; }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with: { role-to-assume: ${{ vars.AWS_ROLE_ARN }}, aws-region: ${{ vars.AWS_REGION }}, role-session-name: aegisvolt-pr-plan }
+      - name: Plan del workspace base del PR
+        env:
+          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+          TF_VAR_owner: ${{ vars.TF_OWNER }}
+          TF_VAR_github_repository: ${{ github.repository }}
+          TF_VAR_vpc_cidrs: ${{ vars.VPC_CIDRS_JSON }}
+          TF_VAR_availability_zones: ${{ vars.AVAILABILITY_ZONES_JSON }}
+        run: |
+          terraform -chdir=infra/terraform/environments init -reconfigure -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
+          terraform -chdir=infra/terraform/environments workspace select "${{ github.base_ref }}" || terraform -chdir=infra/terraform/environments workspace new "${{ github.base_ref }}"
+          terraform -chdir=infra/terraform/environments plan -out="plan-${{ github.base_ref }}.tfplan"
+          terraform -chdir=infra/terraform/environments show -no-color "plan-${{ github.base_ref }}.tfplan" > "plan-${{ github.base_ref }}.txt"
+      - uses: actions/upload-artifact@v4
+        with: { name: terraform-plan-${{ github.base_ref }}, path: infra/terraform/environments/plan-${{ github.base_ref }}.txt }

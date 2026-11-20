@@ -1,0 +1,9 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: graphql-gateway, namespace: aegisvolt }
+spec: { minAvailable: 1, selector: { matchLabels: { app: graphql-gateway } } }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: station-reservation, namespace: aegisvolt }
+spec: { minAvailable: 1, selector: { matchLabels: { app: station-reservation } } }

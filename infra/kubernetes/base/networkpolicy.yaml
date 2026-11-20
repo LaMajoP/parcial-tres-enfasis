@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: default-deny, namespace: aegisvolt }
+spec: { podSelector: {}, policyTypes: [Ingress, Egress] }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: gateway-to-services, namespace: aegisvolt }
+spec:
+  podSelector: { matchLabels: { aegisvolt.io/component: domain-service } }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from: [{ podSelector: { matchLabels: { app: graphql-gateway } } }]
+      ports: [{ protocol: TCP, port: 3001 }, { protocol: TCP, port: 3002 }, { protocol: TCP, port: 3003 }]
+  egress:
+    - to: [{ ipBlock: { cidr: 0.0.0.0/0 } }]
+      ports: [{ protocol: TCP, port: 443 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: gateway-ingress-egress, namespace: aegisvolt }
+spec:
+  podSelector: { matchLabels: { app: graphql-gateway } }
+  policyTypes: [Ingress, Egress]
+  ingress: [{ ports: [{ protocol: TCP, port: 4000 }] }]
+  egress:
+    - to: [{ podSelector: { matchLabels: { aegisvolt.io/component: domain-service } } }]
+      ports: [{ protocol: TCP, port: 3001 }, { protocol: TCP, port: 3002 }, { protocol: TCP, port: 3003 }]
+    - to: [{ ipBlock: { cidr: 0.0.0.0/0 } }]
+      ports: [{ protocol: TCP, port: 443 }]

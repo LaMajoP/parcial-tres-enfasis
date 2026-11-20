@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: graphql-gateway, namespace: aegisvolt, labels: { app: graphql-gateway } }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: graphql-gateway } }
+  template:
+    metadata: { labels: { app: graphql-gateway, aegisvolt.io/component: gateway } }
+    spec:
+      serviceAccountName: graphql-gateway
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: app
+          image: REPLACE_AT_CD/graphql-gateway@sha256:REPLACE_DIGEST
+          command: [node, --import, tsx, apps/graphql-gateway/src/index.ts]
+          ports: [{ containerPort: 4000, name: http }]
+          envFrom: [{ configMapRef: { name: aegisvolt-runtime } }]
+          resources: { requests: { cpu: 150m, memory: 192Mi }, limits: { cpu: "1", memory: 384Mi } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          startupProbe: { httpGet: { path: /health/live, port: http }, failureThreshold: 20, periodSeconds: 3 }
+          readinessProbe: { httpGet: { path: /health/ready, port: http }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /health/live, port: http }, periodSeconds: 10 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: graphql-gateway
+  namespace: aegisvolt
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+spec:
+  type: LoadBalancer
+  selector: { app: graphql-gateway }
+  ports: [{ name: http, port: 80, targetPort: http }]

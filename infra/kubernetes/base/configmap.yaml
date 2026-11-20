@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegisvolt-runtime
+  namespace: aegisvolt
+data:
+  AEGISVOLT_ENV: dev
+  AWS_REGION: us-east-1
+  TABLE_RESERVATIONS: aegisvolt-reservations-dev
+  TABLE_BILLING: aegisvolt-billing-dev
+  TABLE_DISPATCH: aegisvolt-dispatch-dev
+  TABLE_SAGA: aegisvolt-saga-dev
+  TABLE_FLAGS: aegisvolt-flags-dev
+  STATION_SERVICE_URL: http://station-reservation.aegisvolt.svc.cluster.local:3001
+  BILLING_SERVICE_URL: http://billing-wallet.aegisvolt.svc.cluster.local:3002
+  DISPATCH_SERVICE_URL: http://energy-dispatch.aegisvolt.svc.cluster.local:3003
+  WEB_ORIGIN: https://REPLACE_WITH_AUTHENTICATED_ENTRYPOINT

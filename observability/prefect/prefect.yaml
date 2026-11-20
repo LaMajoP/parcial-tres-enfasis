@@ -1,0 +1,21 @@
+name: aegisvolt-observability
+prefect-version: 3.1.15
+build: null
+push: null
+pull: null
+deployments:
+  - name: audit-dev
+    entrypoint: flows.py:health_and_saga_audit
+    parameters: { environment: dev }
+    schedules: [{ cron: "*/5 * * * *", timezone: "America/Bogota", active: true }]
+    work_pool: { name: aegisvolt-local, work_queue_name: default }
+  - name: audit-test
+    entrypoint: flows.py:health_and_saga_audit
+    parameters: { environment: test }
+    schedules: [{ cron: "*/10 * * * *", timezone: "America/Bogota", active: true }]
+    work_pool: { name: aegisvolt-local, work_queue_name: default }
+  - name: audit-prod
+    entrypoint: flows.py:health_and_saga_audit
+    parameters: { environment: prod }
+    schedules: [{ cron: "*/15 * * * *", timezone: "America/Bogota", active: true }]
+    work_pool: { name: aegisvolt-local, work_queue_name: default }

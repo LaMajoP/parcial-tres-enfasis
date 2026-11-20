@@ -1,0 +1,36 @@
+name: CD — promoción por rama
+on:
+  push:
+    branches: [dev, test, prod]
+permissions: { contents: read, id-token: write, packages: read }
+concurrency:
+  group: terraform-apply-${{ github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment: ${{ github.ref_name }} # prod requiere aprobación en GitHub Environment antes de este job.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with: { role-to-assume: ${{ vars.AWS_ROLE_ARN }}, aws-region: ${{ vars.AWS_REGION }}, role-session-name: aegisvolt-${{ github.ref_name }}-deploy }
+      - name: Aplicar solo el workspace de la rama actualizada
+        env:
+          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+          TF_VAR_owner: ${{ vars.TF_OWNER }}
+          TF_VAR_github_repository: ${{ github.repository }}
+          TF_VAR_vpc_cidrs: ${{ vars.VPC_CIDRS_JSON }}
+          TF_VAR_availability_zones: ${{ vars.AVAILABILITY_ZONES_JSON }}
+        run: |
+          test -n "${{ vars.TF_STATE_BUCKET }}" || { echo "TF_STATE_BUCKET obligatorio"; exit 1; }
+          terraform -chdir=infra/terraform/environments init -reconfigure -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
+          terraform -chdir=infra/terraform/environments workspace select "${{ github.ref_name }}"
+          terraform -chdir=infra/terraform/environments apply -auto-approve
+      - name: Promover el digest validado sin recompilar
+        env: { IMAGE_DIGEST: ${{ vars.PROMOTED_IMAGE_DIGEST }} }
+        run: |
+          test -n "$IMAGE_DIGEST" || { echo "PROMOTED_IMAGE_DIGEST debe ser el digest aprobado del pipeline anterior"; exit 1; }
+          kubectl config use-context "${{ vars.EKS_CONTEXT }}"
+          kustomize build "infra/kubernetes/overlays/${{ github.ref_name }}" | kubectl apply -f -
+          kubectl -n "aegisvolt-${{ github.ref_name }}" rollout status deployment/graphql-gateway --timeout=5m
