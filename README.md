@@ -45,3 +45,7 @@ npm run test:e2e
 Los servicios no incluyen secretos. En AWS usan IRSA/roles por dominio y las tablas se inyectan por configuración. El modo `DEMO_MODE=true` expone rutas de semilla solo para Compose local; no está definido en manifests Kubernetes. La autorización de la UI demo utiliza `x-aegisvolt-role`; AWS debe integrar OIDC/JWT antes de abrir una entrada de navegador.
 
 La auditoría por requisito está en [docs/AUDITORIA_CONTRA_PDF.md](docs/AUDITORIA_CONTRA_PDF.md) y las verificaciones reales, incluidos bloqueos, en [docs/RESULTADOS_VERIFICACION.md](docs/RESULTADOS_VERIFICACION.md). Consulte [docs/ACCIONES_MANUALES.md](docs/ACCIONES_MANUALES.md) antes de usar AWS o GitHub.
+
+Validación del pipeline CI mediante Pull Request.
+
+Validación del pipeline CI mediante Pull Request.
