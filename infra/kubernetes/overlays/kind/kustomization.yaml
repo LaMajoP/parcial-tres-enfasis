@@ -9,6 +9,8 @@ patches:
         path: /spec/strategy/canary/trafficRouting
       - op: remove
         path: /spec/strategy/canary/steps/2
+      - op: remove
+        path: /spec/strategy/canary/steps/1
 
 
   # AEGISVOLT_KIND_FIXES

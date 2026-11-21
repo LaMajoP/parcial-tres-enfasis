@@ -59,8 +59,13 @@ class DependencyClient {
       }
       throw lastError;
     } catch (error) {
-      this.failures += 1;
-      if (this.failures >= 3) this.openUntil = Date.now() + 5_000;
+      // Un 4xx de dominio ya fue recibido correctamente desde la dependencia:
+      // no es una indisponibilidad y no debe abrir el circuit breaker para las
+      // reservas válidas que lleguen después.
+      if (!(error instanceof DomainError && !error.retryable)) {
+        this.failures += 1;
+        if (this.failures >= 3) this.openUntil = Date.now() + 5_000;
+      }
       throw error;
     } finally { this.inFlight -= 1; }
   }
@@ -182,6 +187,13 @@ const executeSaga = async (original: SagaItem, flags: FeatureFlags): Promise<Sag
     return saga;
   } catch (error) {
     const failure = toError(error); metrics.increment('SagaFailed');
+    // La reserva aún no produjo ningún efecto compensable. Un rechazo de
+    // dominio (conector inexistente, fuera de servicio o de otra estación) no
+    // mejorará por reintentar la misma SAGA, así que termina de forma durable
+    // y no se vuelve a seleccionar por reconcileSagas.
+    if (saga.state === 'PENDING' && !failure.retryable) {
+      return record(saga.sagaId, 'COMPENSATED', { type: 'SAGA_TERMINATED', status: 'FAILED', detail: failure.code }, failure, { compensationPlan: [], compensationCompleted: [] });
+    }
     return record(saga.sagaId, saga.state, { type: 'SAGA_PAUSED_FOR_RECONCILIATION', status: 'FAILED', detail: failure.code }, failure);
   }
 };

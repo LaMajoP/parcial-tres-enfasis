@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import { GetCommand, PutCommand, ScanCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
-import { DebitWalletSchema, DomainError, type Movement, type Wallet, dynamoDocumentClient, nowIso, parseEnvironment, tableName } from '@aegisvolt/contracts';
+import { DebitWalletSchema, DomainError, demoWallet, type Movement, type Wallet, dynamoDocumentClient, nowIso, parseEnvironment, tableName } from '@aegisvolt/contracts';
 import { Metrics, log } from '@aegisvolt/shared-observability';
 
 const environment = parseEnvironment();
@@ -36,7 +36,7 @@ app.get('/movements/:fleetId', async (request) => {
 app.post('/seed', async (request, reply) => {
   if (process.env.DEMO_MODE !== 'true') return reply.code(404).send({ code: 'NOT_FOUND', message: 'Ruta de semilla deshabilitada.' });
   const seed = (request.body ?? {}) as { fleetId?: string; balanceCents?: number };
-  const fleetId = seed.fleetId ?? 'fleet-demo'; const balanceCents = seed.balanceCents ?? 500_000;
+  const fleetId = seed.fleetId ?? demoWallet.fleetId; const balanceCents = seed.balanceCents ?? demoWallet.balanceCents;
   if (!Number.isInteger(balanceCents) || balanceCents < 0) return reply.code(400).send({ code: 'INVALID_SEED', message: 'balanceCents debe ser un entero no negativo.' });
   const wallet: WalletItem = { ...walletKey(fleetId), fleetId, balanceCents, currency: 'COP', updatedAt: nowIso() };
   try { await db.send(new PutCommand({ TableName: table, Item: wallet, ConditionExpression: 'attribute_not_exists(PK)' })); return { created: true, wallet }; }

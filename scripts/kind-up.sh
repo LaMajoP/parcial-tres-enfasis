@@ -13,8 +13,12 @@ for component in graphql-gateway station-reservation billing-wallet energy-dispa
 done
 docker build --target web-runtime -t aegisvolt/web:0.0.0 .
 kind load docker-image aegisvolt/graphql-gateway:0.0.0 aegisvolt/station-reservation:0.0.0 aegisvolt/billing-wallet:0.0.0 aegisvolt/energy-dispatch:0.0.0 aegisvolt/web:0.0.0 --name aegisvolt
-# AEGISVOLT_KIND_DYNAMODB
-docker compose up -d dynamodb-local dynamodb-init
+# DynamoDB Local conserva su volumen aunque Kind se elimine. Ejecutar el
+# bootstrap como tarea efímera en cada arranque completa tablas/semillas
+# faltantes de forma condicional, sin borrar ni sustituir operaciones previas.
+docker compose build dynamodb-init
+docker compose up -d dynamodb-local
+docker compose run --rm dynamodb-init
 DDB_ID=$(docker compose ps -q dynamodb-local)
 docker network connect kind "$DDB_ID" 2>/dev/null || true
 DDB_IP=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind").IPAddress}}' "$DDB_ID")
@@ -33,9 +37,17 @@ kubectl -n aegisvolt-dev patch networkpolicy gateway-ingress-egress --type=json 
   -p "[{\"op\":\"add\",\"path\":\"/spec/egress/-\",\"value\":{\"to\":[{\"ipBlock\":{\"cidr\":\"${DDB_IP}/32\"}}],\"ports\":[{\"protocol\":\"TCP\",\"port\":8000}]}}]"
 
 kubectl -n aegisvolt-dev rollout restart deployment/station-reservation deployment/billing-wallet deployment/energy-dispatch
+# El ConfigMap se parchea después de aplicar el overlay, por lo que también se
+# reinicia el Rollout: las cuatro réplicas del gateway deben recibir el endpoint
+# dinámico de DynamoDB Local y no depender de una carrera durante el arranque.
+kubectl -n aegisvolt-dev rollout restart rollout/graphql-gateway
 
 kubectl -n aegisvolt-dev rollout status deployment/station-reservation --timeout=3m
 kubectl -n aegisvolt-dev rollout status deployment/billing-wallet --timeout=3m
 kubectl -n aegisvolt-dev rollout status deployment/energy-dispatch --timeout=3m
-kubectl argo rollouts -n aegisvolt-dev status rollout/graphql-gateway --timeout=5m
+# No se requiere el plugin de cliente de Argo Rollouts. El CRD publica las
+# condiciones Healthy/Available, que kubectl estándar puede esperar y que son
+# producidas por el controlador instalado arriba.
+kubectl -n aegisvolt-dev wait --for=condition=Healthy rollout/graphql-gateway --timeout=5m
+kubectl -n aegisvolt-dev wait --for=condition=Available rollout/graphql-gateway --timeout=5m
 kubectl -n aegisvolt-dev get pods,services,rollouts

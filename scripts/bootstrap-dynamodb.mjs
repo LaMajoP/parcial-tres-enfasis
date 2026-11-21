@@ -1,9 +1,11 @@
-import { CreateTableCommand, DescribeTableCommand, DynamoDBClient, UpdateTimeToLiveCommand } from '@aws-sdk/client-dynamodb';
+import { CreateTableCommand, DescribeTableCommand, DynamoDBClient, PutItemCommand, UpdateTimeToLiveCommand } from '@aws-sdk/client-dynamodb';
+import { demoConnectors, demoWallet } from '@aegisvolt/contracts';
 
 const endpoint = process.env.DYNAMODB_ENDPOINT ?? 'http://localhost:8000';
 const client = new DynamoDBClient({ region: process.env.AWS_REGION ?? 'us-east-1', endpoint, credentials: { accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'local', secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'local' } });
 const domains = ['reservations', 'billing', 'dispatch', 'saga', 'flags'];
 const environments = ['dev', 'test', 'prod'];
+const environment = process.env.AEGISVOLT_ENV ?? 'dev';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function waitForDynamo() {
@@ -33,5 +35,37 @@ async function createTable(TableName, domain) {
     try { await client.send(new UpdateTimeToLiveCommand({ TableName, TimeToLiveSpecification: { AttributeName: 'expiresAt', Enabled: true } })); } catch (error) { console.warn(JSON.stringify({ event: 'ttl_not_updated', TableName, error: error.name })); }
   }
 }
+
+const attribute = (value) => {
+  if (typeof value === 'string') return { S: value };
+  if (typeof value === 'number') return { N: String(value) };
+  if (typeof value === 'boolean') return { BOOL: value };
+  throw new TypeError(`Valor de semilla no soportado: ${typeof value}`);
+};
+const item = (values) => Object.fromEntries(Object.entries(values).map(([name, value]) => [name, attribute(value)]));
+async function putIfMissing(TableName, Item, label) {
+  try {
+    await client.send(new PutItemCommand({ TableName, Item: item(Item), ConditionExpression: 'attribute_not_exists(PK)' }));
+    console.log(JSON.stringify({ event: 'demo_seed_created', TableName, label }));
+  } catch (error) {
+    if (error.name !== 'ConditionalCheckFailedException') throw error;
+    console.log(JSON.stringify({ event: 'demo_seed_exists', TableName, label }));
+  }
+}
+async function seedDemoData() {
+  const reservationsTable = `aegisvolt-reservations-${environment}`;
+  const billingTable = `aegisvolt-billing-${environment}`;
+  for (const connector of demoConnectors) {
+    await putIfMissing(reservationsTable, {
+      PK: `CONNECTOR#${connector.connectorId}`, SK: 'META', ...connector, updatedAt: new Date().toISOString()
+    }, connector.connectorId);
+  }
+  await putIfMissing(billingTable, {
+    PK: `WALLET#${demoWallet.fleetId}`, SK: 'CURRENT', ...demoWallet, updatedAt: new Date().toISOString()
+  }, demoWallet.fleetId);
+}
 await waitForDynamo();
 for (const environment of environments) for (const domain of domains) await createTable(`aegisvolt-${domain}-${environment}`, domain);
+// Kind elimina el clúster, no el volumen de DynamoDB Local. Esta siembra
+// condicional completa entidades faltantes sin sobrescribir operaciones.
+if (process.env.SEED_DEMO_DATA === 'true') await seedDemoData();

@@ -1,44 +1,38 @@
 # Resultados de verificación reales
 
-Fecha de auditoría/corrección: 2026-11-20. Baseline inspeccionado: `bcd6a40593df46f41bed8e51bd86146f0a0c198f` (`main`, `origin` configurado). Los resultados siguientes son literales: `NO VERIFICADO` no significa aprobado.
+Fecha de auditoría/corrección: 2026-11-20 (America/Bogota). Baseline: `e7bb393` en `main`.
 
-| Fecha | Comando / acción | Resultado real | Estado |
-|---|---|---|---|
-| 2026-11-20 | Lectura de `Especificacion_Oficial_AegisVolt_Para_Codex.md` | Leída completa; reemplaza la limitación previa de extracción del PDF y se usó como fuente normativa. | OK |
-| 2026-11-20 | Lectura de `Prompt_Segunda_Fase_Codex_AegisVolt_Auditoria_y_Correccion.md` | Leído completo y ejecutado mediante auditoría/correcciones documentadas. | OK |
-| 2026-11-20 | `git rev-parse HEAD`, `git status --short`, `git remote -v` | Repo Git válido, baseline `bcd6a40`, remoto configurado. Existen cambios locales de esta segunda fase y los dos documentos de entrada sin seguimiento al inicio. | OK |
-| 2026-11-20 | `node --version`, `npm --version`, Docker | Node `v24.19.0`, npm `11.17.0`, Docker client/Compose presentes. | OK |
-| 2026-11-20 | `npm install --package-lock-only --offline` con caché copiada a `/tmp` | Falló `ENOTCACHED` para `@aws-sdk/client-dynamodb`; no se generó un lockfile ficticio. | BLOQUEADO |
-| 2026-11-20 | Acceso a `registry.npmjs.org` / instalación npm | Falló por DNS `EAI_AGAIN`. No existen `node_modules` ni `package-lock.json`; por ello no se ejecutaron build, ESLint, Vitest, Playwright ni schema con dependencias reales. | BLOQUEADO |
-| 2026-11-20 | `npm ping --fetch-timeout=5000 --fetch-retries=0` | Falló nuevamente con `getaddrinfo EAI_AGAIN registry.npmjs.org`. Se reintentó antes de cerrar verificaciones; el bloqueo persiste. | BLOQUEADO |
-| 2026-11-20 | `docker version` | Docker client detectado; socket `/var/run/docker.sock` respondió permiso denegado. No se construyeron imágenes ni se inició Compose. | BLOQUEADO |
-| 2026-11-20 | `command -v terraform kind kubectl helm actionlint` | Herramientas no disponibles en PATH. No se ejecutaron validate/plan Terraform, Kind, Argo real ni actionlint. | BLOQUEADO |
-| 2026-11-20 | `git ls-remote origin` | DNS no resolvió `github.com`. No se consultaron logs de las dos ejecuciones rojas, ni se hizo push o cambio de rulesets. | BLOQUEADO |
-| 2026-11-20 | `python3 scripts/validate_workflows.py` | Pasó: YAML de los tres workflows parseable; CI por PR dev/test/prod, CD solo por push dev/test/prod y runner privado para EKS. | OK |
-| 2026-11-20 | `python3 scripts/validate_kubernetes.py` | Pasó: 37 documentos YAML, Rollout base con 20/80/ALB y sin placeholders desplegables. Es validación estática, no render Kustomize ni clúster. | OK PARCIAL |
-| 2026-11-20 | `bash -n scripts/*.sh` | Sintaxis de scripts shell válida. | OK |
-| 2026-11-20 | `node --check` / `node --experimental-strip-types --check` | Sintaxis válida para scripts JS y fuentes TS no JSX comprobadas, incluidos gateway y dispatch. No sustituye `tsc` ni resolución de imports. | OK PARCIAL |
-| 2026-11-20 | `docker compose config -q` | Configuración Compose válida estáticamente después de healthchecks/target web runtime. | OK |
-| 2026-11-20 | `git diff --check` | Sin errores de whitespace en el diff local. | OK |
-| 2026-11-20 | `python3 -m py_compile observability/prefect/flows.py observability/prefect/tests/test_flows.py` | Sintaxis Python de flow y fixture válida. `prefect`/`boto3` no están instalados, por lo que no se ejecutó el flow ni pytest. | OK PARCIAL |
-| 2026-11-20 | `npm run test:graphql-schema` | Falló con `tsx: command not found`; no hay dependencias porque no existe lockfile y npm sigue bloqueado por DNS. | BLOQUEADO |
-| 2026-11-20 | `npm run build` | Falló con `tsc: command not found` en workspaces; no se declara como build válido. | BLOQUEADO |
-| 2026-11-20 | `npm run terraform:validate` | Falló con `terraform: command not found`. | BLOQUEADO |
-| 2026-11-20 | `npm run kind:up` | Terminó con código 69 y mensaje `Instale Kind`; no se creó clúster. | BLOQUEADO |
-| 2026-11-20 | `npm run lint`, `npm test`, `npm run test:integration`, `npm run test:e2e` | Todos fallaron con código 127 (`eslint`, `vitest`, `playwright` no encontrados) por dependencias ausentes; no se reportó ningún test como ejecutado. | BLOQUEADO |
-| 2026-11-20 | `docker compose up --build -d` | Falló con permiso denegado al socket Docker. No se levantó la aplicación local. | BLOQUEADO |
+## Corrección de `CONNECTOR_NOT_FOUND`
 
-## Comandos pendientes al desbloquear entorno
+La tabla `aegisvolt-reservations-dev` conservaba solo `connector-01`, `connector-03` y `connector-04`; faltaba `CONNECTOR#connector-02`. Las SAGAs persistidas con el error usaban efectivamente `connector-02`, aunque la descripción inicial mencionaba `connector-01`. Una SAGA previa de `connector-02` había llegado a `COMPLETED`, lo cual confirma que la fila existió antes.
 
-```bash
-bash scripts/generate-lockfile.sh   # una vez, revisar y versionar package-lock.json
-npm ci --no-audit --no-fund
-npm run lint && npm run build && npm run test:graphql-schema
-npm test && npm run test:integration && npm run test:resilience && npm run test:e2e
-docker compose up --build -d && npm run seed
-npm run kind:up
-npm run terraform:validate
-actionlint
-```
+La causa estructural fue doble:
 
-No se registran como verdes despliegues AWS, CloudWatch, Prefect, GitHub Actions, EKS, VPCE, API Gateway privada, rulesets remotos, canary ponderado ni pruebas de navegador porque no se ejecutaron en este entorno.
+- `expiresAt` es la TTL de DynamoDB para una reserva pendiente. La transición a `CHARGING` no la eliminaba, de modo que DynamoDB Local podía borrar por TTL el ítem completo de un conector ya activado.
+- `kind:down` elimina solo el clúster; el volumen `aegisvolt_dynamodb-data` permanece. `kind:up` creaba tablas, pero no reejecutaba de forma explícita una semilla que completara entidades faltantes. Por ello el estado incompleto sobrevivía al siguiente clúster.
+
+La semilla es ahora condicional e idempotente, se ejecuta explícitamente en cada arranque de Kind y no sobrescribe conectores ocupados ni saldos. La activación elimina `expiresAt`; los reintentos idempotentes también lo reparan si el ítem antiguo aún existe.
+
+| Comando / acción | Resultado real | Estado |
+|---|---|---|
+| `npm run lint` | ESLint sin warnings. | OK |
+| `npm run build` | TypeScript y build Vite correctos en todos los workspaces. | OK |
+| `npm run test:graphql-schema` | `Schema GraphQL del gateway válido y con los contratos obligatorios.` | OK |
+| `npm test` | 3 pruebas unitarias aprobadas. | OK |
+| `npm run test:integration` | 6/6 aprobadas contra Compose y DynamoDB Local: éxito, saldo insuficiente, conector anunciado `AVAILABLE`, duplicado idempotente, falla física/reembolso y timeout. | OK |
+| `npm run test:resilience` | 1/1 aprobada: dos flotas no adquieren el mismo conector. | OK |
+| `npm run validate:kubernetes` | 37 documentos válidos; Rollout sin placeholders desplegables. | OK |
+| `python3 scripts/validate_workflows.py` | Workflows YAML y reglas estáticas válidas. | OK |
+| `docker compose up --build -d` | Servicios de dominio y gateway sanos; healthcheck web corregido a IPv4. | OK |
+| `npm run kind:down` | Eliminó el clúster `aegisvolt`; no eliminó el volumen DynamoDB. | OK |
+| `npm run kind:up` + comprobación posterior con `kubectl` | 12 pods `Running/Ready`; 4 réplicas del Rollout disponibles; condiciones `Healthy` y `Available` satisfechas. El plugin `kubectl argo` no está instalado y ya no es una dependencia del script. | OK |
+| DynamoDB Local tras el arranque Kind | Cuatro ítems de conector con claves `CONNECTOR#connector-01` a `CONNECTOR#connector-04`; billetera `fleet-demo` presente. | OK |
+| Mutación real por `kubectl port-forward svc/web …` | `station-bogota-01` + `connector-01`: reserva, débito, activación y SAGA `COMPLETED`; movimiento y sesión persistidos con la misma SAGA/correlación. | OK |
+| Consulta tras activar | Conector `CHARGING` y `reservationExpiresAt: null`; tras `closeCharging`, `AVAILABLE`. | OK |
+| Rechazos reales en Kind | Inexistente, fuera de servicio y par estación/conector inválido: `COMPENSATED`, `SAGA_TERMINATED`, sin reconciliación. Una reserva válida posterior completó, confirmando que esos 4xx no abren el circuit breaker. | OK |
+
+## Limitaciones no verificadas en esta ejecución
+
+- No se ejecutó `npm run test:e2e` con Playwright.
+- No se inyectó una pérdida de conectividad de DynamoDB: no hay un mecanismo de fallo seguro implementado para hacerlo sin interrumpir servicios reales. Los errores técnicos reintentables permanecen en `PENDING` para reconciliación.
+- No se ejecutaron Terraform, AWS, GitHub Actions, CloudWatch ni Prefect contra cuentas externas; no se hizo `terraform apply`.

@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { DomainError, type Connector, ReserveConnectorSchema, dynamoDocumentClient, epochSeconds, nowIso, parseEnvironment, tableName } from '@aegisvolt/contracts';
+import { DomainError, demoConnectors, type Connector, ReserveConnectorSchema, dynamoDocumentClient, epochSeconds, nowIso, parseEnvironment, tableName } from '@aegisvolt/contracts';
 import { Metrics, log } from '@aegisvolt/shared-observability';
 
 const environment = parseEnvironment();
@@ -47,18 +47,12 @@ app.get('/connectors/:connectorId', async (request, reply) => {
 
 app.post('/seed', async (_request, reply) => {
   if (process.env.DEMO_MODE !== 'true') return reply.code(404).send({ code: 'NOT_FOUND', message: 'Ruta de semilla deshabilitada.' });
-  const connectors: Array<Omit<ConnectorItem, 'PK' | 'SK' | 'updatedAt'>> = [
-    { connectorId: 'connector-01', stationId: 'station-bogota-01', state: 'AVAILABLE', powerKw: 150, isFastCharge: true },
-    { connectorId: 'connector-02', stationId: 'station-bogota-01', state: 'AVAILABLE', powerKw: 50, isFastCharge: false },
-    { connectorId: 'connector-03', stationId: 'station-chia-01', state: 'OUT_OF_SERVICE', powerKw: 150, isFastCharge: true },
-    { connectorId: 'connector-04', stationId: 'station-chia-01', state: 'AVAILABLE', powerKw: 50, isFastCharge: false }
-  ];
   let created = 0;
-  for (const connector of connectors) {
+  for (const connector of demoConnectors) {
     try { await db.send(new PutCommand({ TableName: table, Item: { ...connector, ...key(connector.connectorId), updatedAt: nowIso() }, ConditionExpression: 'attribute_not_exists(PK)' })); created += 1; }
     catch (error: unknown) { if ((error as { name?: string }).name !== 'ConditionalCheckFailedException') throw error; }
   }
-  return { created, total: connectors.length };
+  return { created, total: demoConnectors.length };
 });
 
 app.post('/reservations', async (request, reply) => {
@@ -69,6 +63,7 @@ app.post('/reservations', async (request, reply) => {
     context = body;
     const existing = await getConnector(body.connectorId);
     if (!existing) throw new DomainError('CONNECTOR_NOT_FOUND', 'El conector solicitado no existe.');
+    if (existing.stationId !== body.stationId) throw new DomainError('CONNECTOR_STATION_MISMATCH', 'El conector no pertenece a la estación solicitada.');
     if (existing.sagaId === body.sagaId && existing.state === 'RESERVED') return { reservation: asConnector(existing), idempotent: true };
     if (body.requiresFastCharge && !existing.isFastCharge) throw new DomainError('FAST_CHARGE_REQUIRED', 'La flota requiere un conector de ultracarga.');
     const expiresAt = epochSeconds() + body.expiresInSeconds;
@@ -124,10 +119,17 @@ app.post('/reservations/:connectorId/activate', async (request, reply) => {
   const body = request.body as { sagaId?: string; sessionId?: string };
   if (!body.sagaId || !body.sessionId) return reply.code(400).send({ code: 'INVALID_REQUEST', message: 'sagaId y sessionId son obligatorios.' });
   try {
-    await db.send(new UpdateCommand({ TableName: table, Key: key(connectorId), UpdateExpression: 'SET #state = :charging, sessionId = :sessionId, updatedAt = :updatedAt', ConditionExpression: '#state = :reserved AND sagaId = :sagaId', ExpressionAttributeNames: { '#state': 'state' }, ExpressionAttributeValues: { ':charging': 'CHARGING', ':reserved': 'RESERVED', ':sagaId': body.sagaId, ':sessionId': body.sessionId, ':updatedAt': nowIso() } }));
+    // `expiresAt` es la TTL de una reserva pendiente. Mantenerla al activar
+    // borraba eventualmente el ítem completo de DynamoDB, aun estando CHARGING.
+    await db.send(new UpdateCommand({ TableName: table, Key: key(connectorId), UpdateExpression: 'SET #state = :charging, sessionId = :sessionId, updatedAt = :updatedAt REMOVE expiresAt', ConditionExpression: '#state = :reserved AND sagaId = :sagaId', ExpressionAttributeNames: { '#state': 'state' }, ExpressionAttributeValues: { ':charging': 'CHARGING', ':reserved': 'RESERVED', ':sagaId': body.sagaId, ':sessionId': body.sessionId, ':updatedAt': nowIso() } }));
   } catch (error: unknown) {
     const current = await getConnector(connectorId);
-    if (current?.state === 'CHARGING' && current.sagaId === body.sagaId) return { activated: true, idempotent: true };
+    if (current?.state === 'CHARGING' && current.sagaId === body.sagaId) {
+      // Repara de forma idempotente reservas activas creadas antes de la
+      // corrección, mientras el registro todavía exista.
+      if (current.expiresAt) await db.send(new UpdateCommand({ TableName: table, Key: key(connectorId), UpdateExpression: 'REMOVE expiresAt', ConditionExpression: '#state = :charging AND sagaId = :sagaId', ExpressionAttributeNames: { '#state': 'state' }, ExpressionAttributeValues: { ':charging': 'CHARGING', ':sagaId': body.sagaId } }));
+      return { activated: true, idempotent: true };
+    }
     if ((error as { name?: string }).name === 'ConditionalCheckFailedException') return reply.code(409).send({ code: 'RESERVATION_OWNERSHIP_MISMATCH', message: 'La reserva no pertenece a esta SAGA.' });
     throw error;
   }

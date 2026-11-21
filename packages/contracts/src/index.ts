@@ -2,6 +2,8 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { z } from 'zod';
 
+export { demoConnectors, demoWallet } from './demo-fixtures.js';
+
 export const environments = ['dev', 'test', 'prod'] as const;
 export type Environment = (typeof environments)[number];
 export const EnvironmentSchema = z.enum(environments);

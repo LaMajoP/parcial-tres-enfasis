@@ -4,17 +4,14 @@ Siga estas etapas en orden. Pare ante un fallo: no promueva artefactos ni ejecut
 
 ## 1. Cerrar dependencias locales
 
-1. Compruebe `node --version` (24.x), `docker version`, `docker compose version` y conectividad a `registry.npmjs.org`.
-2. Como falta el lockfile debido al bloqueo DNS del sandbox, en una red autorizada ejecute una sola vez:
+1. Compruebe `node --version` (24.x), `docker version` y `docker compose version`.
+2. El repositorio ya contiene `package-lock.json`; instale exactamente las dependencias bloqueadas:
 
    ```bash
-   bash scripts/generate-lockfile.sh
    npm ci --no-audit --no-fund
-   git add package-lock.json .npmrc
-   git commit -m "chore: lock dependencias npm"
    ```
 
-3. Desde ese momento use solo `npm ci`; no sustituya CI/Docker por `npm install`.
+3. Use solo `npm ci`; no sustituya CI/Docker por `npm install`.
 
 ## 2. Validaciones sin infraestructura cloud
 
@@ -51,10 +48,14 @@ Abra `http://localhost:5173` y Prefect en `http://localhost:4200`. `demo:success
 ## 4. Kubernetes local (límite explícito)
 
 ```bash
+npm run kind:down
 npm run kind:up
 kubectl -n aegisvolt-dev get pods,svc,rollouts,networkpolicy
-npm run kind:down
+kubectl -n aegisvolt-dev wait --for=condition=Healthy rollout/graphql-gateway --timeout=5m
+kubectl -n aegisvolt-dev wait --for=condition=Available rollout/graphql-gateway --timeout=5m
 ```
+
+`kind:up` reconstruye el inicializador y ejecuta una semilla condicional de DynamoDB Local en cada arranque. No borra el volumen `aegisvolt_dynamodb-data`: conserva operaciones existentes y recrea solo las entidades demo que falten. El script valida el Rollout por las condiciones del CRD con `kubectl wait`; el plugin opcional `kubectl argo` no es necesario.
 
 Kind valida manifiestos, imágenes, probes y el controlador Argo. No puede demostrar ALB weighted routing, VPCE, API Gateway privada ni CloudWatch; esos puntos pertenecen a la fase AWS.
 
