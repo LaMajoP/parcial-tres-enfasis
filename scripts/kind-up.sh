@@ -28,6 +28,10 @@ kubectl -n aegisvolt-dev patch configmap aegisvolt-runtime --type=merge \
 kubectl -n aegisvolt-dev patch networkpolicy domain-service-ingress-egress --type=json \
   -p "[{\"op\":\"add\",\"path\":\"/spec/egress/-\",\"value\":{\"to\":[{\"ipBlock\":{\"cidr\":\"${DDB_IP}/32\"}}],\"ports\":[{\"protocol\":\"TCP\",\"port\":8000}]}}]"
 
+# KIND_GATEWAY_DYNAMODB_FIX
+kubectl -n aegisvolt-dev patch networkpolicy gateway-ingress-egress --type=json \
+  -p "[{\"op\":\"add\",\"path\":\"/spec/egress/-\",\"value\":{\"to\":[{\"ipBlock\":{\"cidr\":\"${DDB_IP}/32\"}}],\"ports\":[{\"protocol\":\"TCP\",\"port\":8000}]}}]"
+
 kubectl -n aegisvolt-dev rollout restart deployment/station-reservation deployment/billing-wallet deployment/energy-dispatch
 
 kubectl -n aegisvolt-dev rollout status deployment/station-reservation --timeout=3m
