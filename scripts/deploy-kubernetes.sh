@@ -5,7 +5,7 @@ set -euo pipefail
 
 environment="${1:?Uso: scripts/deploy-kubernetes.sh <dev|test|prod>}"
 case "$environment" in dev|test|prod) ;; *) echo "Ambiente inválido" >&2; exit 64 ;; esac
-for command in kubectl kustomize jq; do command -v "$command" >/dev/null || { echo "Falta $command" >&2; exit 69; }; done
+for command in kubectl kustomize kustomize jq; do command -v "$command" >/dev/null || { echo "Falta $command" >&2; exit 69; }; done
 
 images_json="${PROMOTED_IMAGES_JSON:?PROMOTED_IMAGES_JSON es obligatorio}"
 required='["graphql-gateway","station-reservation","billing-wallet","energy-dispatch","web"]'
@@ -36,6 +36,7 @@ kubectl -n "$namespace" rollout status deployment/billing-wallet --timeout=5m
 kubectl -n "$namespace" rollout status deployment/energy-dispatch --timeout=5m
 kubectl -n "$namespace" rollout status deployment/web --timeout=5m
 
-# Es un Argo Rollout, no un Deployment. El plugin verifica pausas, AnalysisRuns
-# y la promoción o el rollback controlados por el controlador.
-kubectl -n "$namespace" argo rollouts status rollout/graphql-gateway --timeout=12m
+# Es un Argo Rollout, no un Deployment. El CRD publica condiciones que
+# `kubectl` estándar puede esperar; el runner no depende del plugin cliente.
+kubectl -n "$namespace" wait --for=condition=Healthy rollout/graphql-gateway --timeout=12m
+kubectl -n "$namespace" wait --for=condition=Available rollout/graphql-gateway --timeout=12m

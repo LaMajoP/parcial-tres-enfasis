@@ -33,6 +33,46 @@ La semilla es ahora condicional e idempotente, se ejecuta explícitamente en cad
 
 ## Limitaciones no verificadas en esta ejecución
 
-- No se ejecutó `npm run test:e2e` con Playwright.
 - No se inyectó una pérdida de conectividad de DynamoDB: no hay un mecanismo de fallo seguro implementado para hacerlo sin interrumpir servicios reales. Los errores técnicos reintentables permanecen en `PENDING` para reconciliación.
-- No se ejecutaron Terraform, AWS, GitHub Actions, CloudWatch ni Prefect contra cuentas externas; no se hizo `terraform apply`.
+- No se ejecutaron Terraform contra backend AWS, AWS, GitHub Actions, CloudWatch ni Prefect contra cuentas externas; no se hizo `terraform apply`.
+
+## Auditoría CI/CD
+
+Fecha: 2026-11-20 (America/Bogota). Esta sección separa deliberadamente las pruebas locales de la configuración verificada en GitHub.
+
+### Estado remoto observado
+
+- `origin/main` y la rama local `main` apuntaban a `bd574b5cdf5d47506e1d53fd91acae3136b7a54f`. Solo existía `main` en el remoto. Se crearon las referencias **locales** `dev`, `test` y `prod` desde ese mismo commit; no se publicaron, no se forzó ningún push y `main` no se modificó.
+- La consulta pública `GET /repos/LaMajoP/parcial-tres-enfasis/rulesets` devolvió `[]` y `GET /environments` devolvió `total_count: 0`. Por tanto, las protecciones y Environments no estaban configurados al momento de la auditoría.
+- No había GitHub CLI ni `GITHUB_TOKEN`; la protección de ramas que requiere autenticación no pudo verificarse. El script de rulesets se ejecutó solo en modo lectura y propuso exactamente los tres payloads, sin mutar GitHub.
+- Los únicos runs públicos eran fallos históricos sobre `bcd6a40593df` y evento `push` a `main`: [CI](https://github.com/LaMajoP/parcial-tres-enfasis/actions/runs/44802500445) y [CD](https://github.com/LaMajoP/parcial-tres-enfasis/actions/runs/44802502459). No son ejecuciones de la configuración local actual ni de un PR a `dev`, `test` o `prod`.
+
+### Cambios auditados
+
+- `ci.yml` ahora corre solo para PR con destino `dev`, `test` o `prod`; valida la cadena de promoción, usa `npm ci`, separa lint/build/schema, pruebas unitarias, integración, resiliencia, E2E y builds Docker sin publicar. Cada job Compose recoge logs y elimina su volumen efímero.
+- `terraform-offline` valida HCL sin backend AWS. `terraform-plan` usa OIDC y el workspace de `github.base_ref` solamente en PR internos cuando la compuerta de repositorio `TF_PLAN_ENABLED` es `true`; ya dentro del Environment exige los seis valores reales antes de solicitar OIDC. Sin esa compuerta se omite, sin escribir un falso éxito ni crear workspaces.
+- CD permanece estructurado para `github.ref_name`, OIDC, runner privado, digests inmutables, promoción sin recompilación y Argo Rollouts. `CD_ENABLED == 'true'` es un cierre seguro explícito antes de cualquier `apply` o publicación ECR.
+- `scripts/github-rulesets.sh` dejó de depender de `gh`: inspecciona por REST, muestra los JSON y solo permite crear rulesets ausentes mediante `--apply` con token administrativo explícito. `scripts/deploy-kubernetes.sh` usa condiciones del CRD `Rollout` con `kubectl`, por lo que ya no requiere el plugin cliente de Argo.
+
+| Comando / acción | Resultado real | Estado |
+|---|---|---|
+| `python3 scripts/validate_workflows.py` | Validó triggers, jobs, limpieza Compose, plan condicional, bloqueo CD y promoción por digest. | OK |
+| `docker run … rhysd/actionlint:latest -no-color` | Sin diagnósticos después de registrar la etiqueta privada en `.github/actionlint.yaml`. | OK |
+| `python3 scripts/validate_kubernetes.py` | 37 documentos válidos; Rollout 20/80 sin placeholders. | OK |
+| `npm ci --no-audit --no-fund` | Instaló las 355 dependencias bloqueadas desde `package-lock.json`; solo avisos de deprecación/allow-scripts de dependencias. | OK |
+| `npm run lint && npm run build` | ESLint sin warnings; todos los workspaces compilaron. | OK |
+| `npm run test:graphql-schema` | Contratos GraphQL obligatorios válidos. | OK |
+| `npm test` | 3/3 unitarias aprobadas. | OK |
+| `npm run terraform:validate` | `fmt`, `init -backend=false` y `validate` correctos; sin credenciales AWS. | OK |
+| Stack temporal `aegisvolt-ci` + `npm run test:integration` | DynamoDB Local y servicios reales; 6/6 aprobadas. El volumen temporal se eliminó y el volumen original se preservó. | OK |
+| `npm run test:resilience` | 1/1 aprobada contra ese stack temporal. | OK |
+| `npm run test:e2e` | Playwright 1/1 aprobada contra frontend, gateway y servicios reales temporales. | OK |
+| Cinco `docker build --target` | `graphql-gateway`, `station-reservation`, `billing-wallet`, `energy-dispatch` y `web` construyeron con etiquetas efímeras; no se publicó imagen. | OK |
+| API pública GitHub Actions | Solo los dos runs históricos fallidos citados arriba; no se ejecutó CI remoto de estos cambios porque no se hizo commit ni push. | PENDIENTE EXTERNO |
+
+### Pendientes externos de CI/CD
+
+- Publicar las ramas iniciales mediante una acción administrativa auditada, aplicar los rulesets revisados y crear los Environments `dev`, `test` y `prod`.
+- Configurar en cada Environment `AWS_ROLE_ARN`, `AWS_REGION`, `TF_STATE_BUCKET`, `TF_OWNER`, `VPC_CIDRS_JSON`, `AVAILABILITY_ZONES_JSON` y, al promover, `PROMOTED_IMAGES_JSON`.
+- Configurar confianza OIDC, backend S3, workspaces existentes y runner autohospedado privado con Docker, Node 24, Terraform, AWS CLI, kubectl, kustomize y jq. Solo entonces habilitar `TF_PLAN_ENABLED=true` para demostrar un plan autenticado real; `CD_ENABLED` permanece independiente hasta autorizar despliegues.
+- No se ejecutaron `terraform plan` autenticado, `terraform apply`, ECR, EKS, Argo en AWS ni una ejecución GitHub Actions del SHA actual.

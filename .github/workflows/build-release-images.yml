@@ -12,6 +12,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build-and-push:
+    # El dispatch manual sirve solo como recuperación autorizada. Sin esta
+    # variable de repositorio no puede publicar artefactos en ECR.
+    if: ${{ vars.CD_ENABLED == 'true' }}
     # Solo un runner privado llega a ECR/VPC. Test y prod reciben el manifiesto
     # de digests aprobado; no recompilan el mismo código.
     runs-on: [self-hosted, linux, aegisvolt-private]
@@ -21,6 +24,10 @@ jobs:
         with:
           ref: "${{ inputs.source_ref }}"
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: "${{ vars.AWS_ROLE_ARN }}"

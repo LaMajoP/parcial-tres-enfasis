@@ -4,16 +4,13 @@ Este manual contiene solo accesos, aprobaciones o acciones externas. No cree man
 
 ## 1. Recuperar ejecución local reproducible
 
-1. En una red que resuelva npm, desde la raíz:
+1. Desde la raíz, instale exactamente el lockfile ya versionado:
 
    ```bash
-   bash scripts/generate-lockfile.sh
    npm ci --no-audit --no-fund
-   git add package-lock.json .npmrc
-   git commit -m "chore: lock dependencias npm"
    ```
 
-   Éxito esperado: existe un lockfile y `npm ci` termina en código 0. No publique `node_modules`.
+   Éxito esperado: `npm ci` termina en código 0. No publique `node_modules` ni sustituya este paso por `npm install`.
 
 2. Verifique Docker con un usuario que pueda abrir `/var/run/docker.sock`:
 
@@ -93,28 +90,31 @@ Este manual contiene solo accesos, aprobaciones o acciones externas. No cree man
 
 ## 5. GitHub: ramas, rulesets y Environments
 
-El remoto ya está configurado; no cree otro repositorio. Tras publicar los cambios revisados, cree ramas a partir de `dev`:
+El remoto ya está configurado; no cree otro repositorio. Primero confirme el estado remoto y prepare solo las referencias locales:
 
 ```bash
-git switch -c dev main
+git ls-remote --heads origin
 bash scripts/create-branches.sh
-git push -u origin dev test prod
+git branch -vv
 ```
 
-Con permisos de administración del repositorio:
+El script nunca publica, no sobrescribe ramas y se detiene si ya encuentra una rama remota. No cree `dev`, `test` o `prod` remotamente hasta que un administrador haya revisado los payloads de rulesets y `CD_ENABLED` siga ausente o distinto de `true`.
+
+`scripts/github-rulesets.sh` usa la API REST con `curl` y Python; no requiere GitHub CLI. Consulte primero el estado y los JSON exactos sin mutar GitHub:
 
 ```bash
-gh auth login
 bash scripts/github-rulesets.sh LaMajoP/parcial-tres-enfasis
 ```
 
-En GitHub, abra **Settings → Rules → Rulesets** y confirme para `dev`, `test`, `prod`: PR obligatoria, sin force-push/borrado, reviews y checks `lint-build`, `unit-tests`, `integration-tests`, `e2e-tests`, `terraform-plan`. Solo entonces pruebe desde una rama descartable:
+Con autorización administrativa explícita y un token temporal fine-grained con **Administration: write**, cree únicamente los rulesets ausentes:
 
 ```bash
-git push --force origin HEAD:dev
+GITHUB_TOKEN=... bash scripts/github-rulesets.sh --apply LaMajoP/parcial-tres-enfasis
 ```
 
-Éxito esperado: rechazo del servidor remoto. No lo sustituya por hooks locales.
+El script rechaza sobrescribir un ruleset existente. Los tres rulesets propuestos exigen PR, review, resolución de hilos, no-force-push, no-borrado y los checks `promotion-policy`, `lockfile`, `lint-build`, `unit-tests`, `integration-tests`, `resilience-tests`, `e2e-tests`, `image-build`, `terraform-offline` y `terraform-plan`.
+
+La primera creación remota de las tres ramas requiere una decisión de un administrador: no existe una PR hacia una rama que todavía no existe. Debe crear las referencias desde `main` una sola vez por UI/API administrativa auditada, sin force-push ni contenido adicional; después los rulesets bloquean el push directo y toda promoción seguirá PR. No pruebe las protecciones con un force-push real.
 
 En **Settings → Environments**, cree `dev`, `test`, `prod`; configure reviewers obligatorios en `prod`. Por Environment declare variables no secretas:
 
@@ -124,9 +124,13 @@ En **Settings → Environments**, cree `dev`, `test`, `prod`; configure reviewer
 
 Configure trust OIDC con issuer `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com` y subject restringido a `repo:LaMajoP/parcial-tres-enfasis:ref:refs/heads/<ambiente>`. El rol de cada ambiente debe limitar state/prefijos y recursos del ambiente correspondiente.
 
+Mantenga ausente la variable de repositorio `CD_ENABLED` (o en un valor distinto de `true`) durante la preparación. El workflow CD queda `skipped` y no puede llegar a `terraform apply` ni publicar en ECR hasta que un administrador la establezca explícitamente en `true` después de completar OIDC, backend, runner y aprobaciones.
+
+Mantenga también ausente `TF_PLAN_ENABLED` hasta que los seis valores del Environment estén completos y el backend/workspace ya exista. Esta es una variable de **repositorio** (no un secreto): permite que el job de plan quede `skipped` sin intentar AWS mientras se prepara la cuenta. Al fijarla explícitamente a `true`, el job declara el Environment, comprueba cada variable y solo entonces solicita OIDC y ejecuta el plan real; una configuración incompleta falla de forma explícita, no se convierte en éxito simulado.
+
 ## 6. Runner privado y controllers EKS
 
-Antes de permitir el CD, registre un runner GitHub autohospedado etiquetado `self-hosted`, `linux`, `aegisvolt-private` dentro de la VPC o conectado por VPN. Instale Docker, AWS CLI, Terraform, kubectl, kustomize, jq y el plugin Argo Rollouts. El endpoint EKS es privado: un hosted runner público no es válido.
+Antes de permitir el CD, registre un runner GitHub autohospedado etiquetado `self-hosted`, `linux`, `aegisvolt-private` dentro de la VPC o conectado por VPN. Instale Node 24, Docker, AWS CLI, Terraform, kubectl, el binario `kustomize` y `jq`. El endpoint EKS es privado: un hosted runner público no es válido. El despliegue espera las condiciones del CRD Rollout con `kubectl`; no requiere el plugin cliente de Argo.
 
 Después del apply autorizado instale, con sus roles IAM mínimos, AWS Load Balancer Controller y Argo Rollouts compatibles con la versión EKS. Compruebe:
 
@@ -139,7 +143,7 @@ El CD anotará los ServiceAccounts con los roles Terraform por IRSA y aplicará 
 
 ## 7. Construir una vez y promover
 
-1. Tras merge validado a `dev`, el job `build_dev_images` construye y publica una vez, tras `infrastructure`, y adjunta `promoted-images-<SHA>.json`. Si falló antes de publicar, use **Actions → Construir imágenes inmutables de desarrollo → Run workflow** con ese SHA de dev; no use el workflow manual para recompilar un tag ya existente.
+1. Solo después de habilitar `CD_ENABLED=true` y aprobar infraestructura de `dev`, el job `build_dev_images` construye y publica una vez, tras `infrastructure`, y adjunta `promoted-images-<SHA>.json`. Si falló antes de publicar, use **Actions → Construir imágenes inmutables de desarrollo → Run workflow** con ese SHA de dev; no use el workflow manual para recompilar un tag ya existente.
 2. Descargue `promoted-images-<SHA>/promoted-images.json`. Revise que contenga exactamente `graphql-gateway`, `station-reservation`, `billing-wallet`, `energy-dispatch`, `web`, todos con `@sha256`.
 3. Copie ese JSON exacto a `PROMOTED_IMAGES_JSON` de **test** y luego **prod** al avanzar el mismo artefacto. El CD de dev usa el output del build; el de test/prod se bloquea si falta JSON o contiene tags.
 4. Promueva solo por PR `feature/* → dev`, `dev → test`, `test → prod`; no recompila test/prod.

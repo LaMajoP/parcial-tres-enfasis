@@ -1,12 +1,32 @@
 name: CI de pull request
+
 on:
   pull_request:
     branches: [dev, test, prod]
-permissions: { contents: read, id-token: write }
+
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
+
 jobs:
+  promotion-policy:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Exigir la cadena feature/* → dev → test → prod
+        env:
+          SOURCE_BRANCH: ${{ github.head_ref }}
+          TARGET_BRANCH: ${{ github.base_ref }}
+        run: |
+          case "$TARGET_BRANCH" in
+            dev) test "${SOURCE_BRANCH#feature/}" != "$SOURCE_BRANCH" ;;
+            test) test "$SOURCE_BRANCH" = "dev" ;;
+            prod) test "$SOURCE_BRANCH" = "test" ;;
+            *) echo "Destino no permitido: $TARGET_BRANCH" >&2; exit 64 ;;
+          esac
+
   lockfile:
     runs-on: ubuntu-24.04
     steps:
@@ -14,54 +34,100 @@ jobs:
       - name: Exigir lockfile versionado para npm ci y Docker
         run: |
           test -f package-lock.json || { echo "Falta package-lock.json: genere y revise el lockfile antes de abrir el PR."; exit 1; }
+
   target:
     runs-on: ubuntu-24.04
     outputs:
-      environment: "${{ steps.target.outputs.environment }}"
+      environment: ${{ steps.target.outputs.environment }}
     steps:
       - id: target
         run: echo "environment=${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+
   lint-build:
-    needs: [lockfile, target]
+    needs: lockfile
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 24 }
+        with:
+          node-version: 24
+          cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: npm run lint && npm run build && npm run test:graphql-schema
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run test:graphql-schema
+
   unit-tests:
     needs: lockfile
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 24 }
+        with:
+          node-version: 24
+          cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm test
+
   integration-tests:
     needs: lockfile
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 24 }
+        with:
+          node-version: 24
+          cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: docker compose up -d dynamodb-local dynamodb-init station-reservation-service billing-wallet-service energy-dispatch-service graphql-gateway
+      - name: Construir y levantar dependencias reales de integración
+        run: docker compose up -d --build dynamodb-local dynamodb-init station-reservation-service billing-wallet-service energy-dispatch-service graphql-gateway
       - run: node scripts/seed.mjs
       - run: npm run test:integration
       - if: always()
         run: docker compose logs --no-color > compose-integration.log
       - if: always()
         uses: actions/upload-artifact@v4
-        with: { name: compose-integration, path: compose-integration.log, if-no-files-found: warn }
+        with:
+          name: compose-integration
+          path: compose-integration.log
+          if-no-files-found: warn
+      - if: always()
+        run: docker compose down -v
+
+  resilience-tests:
+    needs: lockfile
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Construir y levantar dependencias reales de resiliencia
+        run: docker compose up -d --build dynamodb-local dynamodb-init station-reservation-service billing-wallet-service energy-dispatch-service graphql-gateway
+      - run: node scripts/seed.mjs
+      - run: npm run test:resilience
+      - if: always()
+        run: docker compose logs --no-color > compose-resilience.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-resilience
+          path: compose-resilience.log
+          if-no-files-found: warn
+      - if: always()
+        run: docker compose down -v
+
   e2e-tests:
     needs: lockfile
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 24 }
+        with:
+          node-version: 24
+          cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npx playwright install --with-deps chromium
       - run: docker compose up -d --build
@@ -69,7 +135,21 @@ jobs:
       - run: npm run test:e2e
       - if: always()
         uses: actions/upload-artifact@v4
-        with: { name: playwright-report, path: playwright-report, if-no-files-found: warn }
+        with:
+          name: playwright-report
+          path: playwright-report
+          if-no-files-found: warn
+      - if: always()
+        run: docker compose logs --no-color > compose-e2e.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-e2e
+          path: compose-e2e.log
+          if-no-files-found: warn
+      - if: always()
+        run: docker compose down -v
+
   image-build:
     needs: lockfile
     runs-on: ubuntu-24.04
@@ -81,49 +161,67 @@ jobs:
             docker build --target runtime -t "aegisvolt/$component:pr-${{ github.event.pull_request.number }}" .
           done
           docker build --target web-runtime -t "aegisvolt/web:pr-${{ github.event.pull_request.number }}" .
+
   terraform-offline:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
       - uses: hashicorp/setup-terraform@v3
       - run: python3 scripts/validate_workflows.py
       - run: python3 scripts/validate_kubernetes.py
-      - run: terraform fmt -check -recursive infra/terraform
-      - run: terraform -chdir=infra/terraform/environments init -backend=false && terraform -chdir=infra/terraform/environments validate
+      - run: npm run terraform:validate
+
   terraform-plan:
-    needs: target
+    needs: [target, terraform-offline]
+    # Las variables de un GitHub Environment aparecen cuando el runner declara
+    # el Environment, demasiado tarde para un job-level if. La compuerta es una
+    # variable de repositorio; dentro del job se exigen los valores reales.
+    if: >-
+      github.event.pull_request.head.repo.fork == false &&
+      vars.TF_PLAN_ENABLED == 'true'
     runs-on: ubuntu-24.04
-    environment: "${{ needs.target.outputs.environment }}"
+    environment: ${{ needs.target.outputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-      - name: Bloquear PR externo antes de solicitar OIDC
-        if: ${{ github.event.pull_request.head.repo.fork == true }}
+      - name: Exigir configuración real del Environment antes de solicitar OIDC
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TF_OWNER: ${{ vars.TF_OWNER }}
+          VPC_CIDRS_JSON: ${{ vars.VPC_CIDRS_JSON }}
+          AVAILABILITY_ZONES_JSON: ${{ vars.AVAILABILITY_ZONES_JSON }}
         run: |
-          echo "El plan autenticado no se ejecuta para forks externos; use un PR desde una rama del repositorio."
-          exit 1
-      - name: Bloquear plan sin OIDC/backend autorizado
-        run: |
-          test -n "${{ vars.AWS_ROLE_ARN }}" || { echo "AWS_ROLE_ARN de GitHub Environment es obligatorio: el plan real no se reemplaza por echo."; exit 1; }
-          test -n "${{ vars.TF_STATE_BUCKET }}" || { echo "TF_STATE_BUCKET es obligatorio"; exit 1; }
+          for required in AWS_ROLE_ARN AWS_REGION TF_STATE_BUCKET TF_OWNER VPC_CIDRS_JSON AVAILABILITY_ZONES_JSON; do
+            test -n "${!required}" || { echo "Falta $required en el GitHub Environment ${{ github.base_ref }}; no se simula terraform plan." >&2; exit 78; }
+          done
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: "${{ vars.AWS_ROLE_ARN }}"
-          aws-region: "${{ vars.AWS_REGION }}"
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
           role-session-name: aegisvolt-pr-plan
-      - name: Plan del workspace base del PR
+      - name: Plan real del workspace base del PR
         env:
-          TF_VAR_aws_region: "${{ vars.AWS_REGION }}"
-          TF_VAR_owner: "${{ vars.TF_OWNER }}"
-          TF_VAR_github_repository: "${{ github.repository }}"
-          TF_VAR_vpc_cidrs: "${{ vars.VPC_CIDRS_JSON }}"
-          TF_VAR_availability_zones: "${{ vars.AVAILABILITY_ZONES_JSON }}"
+          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+          TF_VAR_owner: ${{ vars.TF_OWNER }}
+          TF_VAR_github_repository: ${{ github.repository }}
+          TF_VAR_vpc_cidrs: ${{ vars.VPC_CIDRS_JSON }}
+          TF_VAR_availability_zones: ${{ vars.AVAILABILITY_ZONES_JSON }}
         run: |
           terraform -chdir=infra/terraform/environments init -reconfigure -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
-          terraform -chdir=infra/terraform/environments workspace select "${{ github.base_ref }}" || terraform -chdir=infra/terraform/environments workspace new "${{ github.base_ref }}"
-          terraform -chdir=infra/terraform/environments plan -out="plan-${{ github.base_ref }}.tfplan"
+          terraform -chdir=infra/terraform/environments workspace select "${{ github.base_ref }}"
+          terraform -chdir=infra/terraform/environments plan -lock-timeout=5m -out="plan-${{ github.base_ref }}.tfplan"
           terraform -chdir=infra/terraform/environments show -no-color "plan-${{ github.base_ref }}.tfplan" > "plan-${{ github.base_ref }}.txt"
       - uses: actions/upload-artifact@v4
         with:
-          name: "terraform-plan-${{ github.base_ref }}"
-          path: "infra/terraform/environments/plan-${{ github.base_ref }}.txt"
+          name: terraform-plan-${{ github.base_ref }}
+          path: infra/terraform/environments/plan-${{ github.base_ref }}.txt
+          if-no-files-found: error

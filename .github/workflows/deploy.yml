@@ -8,6 +8,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   infrastructure:
+    # Fail closed: publicar ramas no puede ejecutar apply hasta que un
+    # administrador configure explícitamente la variable de repositorio.
+    if: ${{ vars.CD_ENABLED == 'true' }}
     # EKS es privado. Este runner, administrado fuera del repositorio, debe vivir
     # en la VPC o llegar por VPN; un hosted runner no puede fingir conectividad.
     runs-on: [self-hosted, linux, aegisvolt-private]
@@ -39,7 +42,7 @@ jobs:
         name: Exportar únicamente outputs no secretos para la promoción
         run: |
           printf 'cluster_name=%s\n' "$(terraform -chdir=infra/terraform/environments output -raw cluster_name)" >> "$GITHUB_OUTPUT"
-          printf 'service_roles=%s\n' "$(terraform -chdir=infra/terraform/environments output -json service_role_arns)" >> "$GITHUB_OUTPUT"
+          printf 'service_roles=%s\n' "$(terraform -chdir=infra/terraform/environments output -json service_role_arns | jq -c .)" >> "$GITHUB_OUTPUT"
   build_dev_images:
     needs: infrastructure
     if: ${{ github.ref_name == 'dev' }}
@@ -49,6 +52,10 @@ jobs:
       images: "${{ steps.images.outputs.images }}"
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: "${{ vars.AWS_ROLE_ARN }}"

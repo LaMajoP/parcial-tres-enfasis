@@ -26,7 +26,11 @@ npm run test:graphql-schema
 npm test
 ```
 
-Resultado esperado: todas finalizan con código 0. `actionlint` es una comprobación adicional si está instalado: `actionlint`.
+Resultado esperado: todas finalizan con código 0. La configuración de etiquetas propias para actionlint está versionada en `.github/actionlint.yaml`; la comprobación reproducible sin instalarlo en la máquina es:
+
+```bash
+docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest -no-color
+```
 
 ## 3. Recorrido local real
 
@@ -61,7 +65,10 @@ Kind valida manifiestos, imágenes, probes y el controlador Argo. No puede demos
 
 ## 5. GitHub, AWS y promoción
 
-Siga exactamente `ACCIONES_MANUALES.md`: bootstrap de state, workspaces, rulesets, OIDC, runner privado y controllers. El push post-merge a `dev` ejecuta `build_dev_images` una sola vez y adjunta `promoted-images-<SHA>.json`; copie ese JSON en `PROMOTED_IMAGES_JSON` de `test` y `prod` al promocionar. El workflow manual **Construir imágenes inmutables de desarrollo** es solo recuperación controlada si el job dev falló antes de publicar; ECR inmutable impide sobrescribir el tag. Test y prod no recompilan.
+1. Siga exactamente `ACCIONES_MANUALES.md`: cree las referencias remotas de `dev`, `test` y `prod` una sola vez desde `main`, aplique los rulesets previamente revisados, y cree los tres Environments con OIDC y variables reales. No publique las ramas ni aplique rulesets sin la autorización administrativa correspondiente.
+2. Un PR solo puede seguir `feature/* → dev`, `dev → test` o `test → prod`. CI ejecuta lint/build/schema, unitarias, integración, resiliencia, E2E, build local de las cinco imágenes y validaciones Terraform/Kubernetes. Mantenga `TF_PLAN_ENABLED` ausente hasta configurar OIDC, backend, workspace y las seis variables del Environment del destino. Al fijarla a `true`, el job declara ese Environment, valida los valores reales y ejecuta el plan; antes de ello queda `skipped`, sin simularlo.
+3. Mantenga `CD_ENABLED` ausente o distinto de `true` hasta completar backend, OIDC, runner privado, Environments y aprobaciones. Así, un push no puede llegar a `terraform apply` ni publicar en ECR.
+4. Solo después de habilitar explícitamente esa variable, el merge a `dev` ejecuta `build_dev_images` una sola vez y adjunta `promoted-images-<SHA>.json`. Copie ese mismo JSON de digests a `PROMOTED_IMAGES_JSON` de `test` y `prod`; esos ambientes no recompilan. El workflow manual **Construir imágenes inmutables de desarrollo** es únicamente recuperación autorizada cuando el build de dev no publicó nada.
 
 ## 6. Evidencia final
 
