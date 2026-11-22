@@ -68,7 +68,7 @@ plan_steps = steps(plan)
 plan_step_names = "\n".join(str(step.get("name", "")) for step in plan.get("steps", []))
 if "Exigir configuración real del Environment" not in plan_step_names:
     errors.append("terraform-plan debe validar las variables reales del Environment")
-for variable in ("AWS_ROLE_ARN", "AWS_REGION", "TF_STATE_BUCKET", "TF_OWNER", "VPC_CIDRS_JSON", "AVAILABILITY_ZONES_JSON"):
+for variable in ("AWS_ROLE_ARN", "AWS_DEPLOY_ROLE_ARN", "AWS_REGION", "TF_STATE_BUCKET", "TF_OWNER", "VPC_CIDRS_JSON", "AVAILABILITY_ZONES_JSON", "EKS_ACCESS_PRINCIPAL_ARNS", "ENABLE_PRIVATE_API"):
     if variable not in plan_steps:
         errors.append(f"terraform-plan debe requerir {variable}")
 if " plan " not in plan_steps or " show " not in plan_steps:
@@ -80,14 +80,22 @@ branches = deploy.get("on", {}).get("push", {}).get("branches", [])
 if sorted(branches) != ["dev", "prod", "test"]:
     errors.append("CD no debe reaccionar a main ni feature/*")
 infrastructure = deploy_jobs.get("infrastructure", {})
+infrastructure_text = str(infrastructure)
 if "self-hosted" not in infrastructure.get("runs-on", []):
     errors.append("Infraestructura debe requerir runner privado self-hosted")
 if "vars.CD_ENABLED == 'true'" not in str(infrastructure.get("if", "")):
     errors.append("CD debe quedar bloqueado hasta activar explícitamente CD_ENABLED")
+if "vars.AWS_DEPLOY_ROLE_ARN" not in infrastructure_text:
+    errors.append("CD debe asumir AWS_DEPLOY_ROLE_ARN, no el rol de lectura de PR")
+if "TF_VAR_eks_access_principal_arns" not in infrastructure_text:
+    errors.append("CD debe propagar el principal autorizado de EKS hacia Terraform")
 if "build_dev_images" not in deploy_jobs:
     errors.append("CD debe construir imágenes una sola vez tras merge a dev")
 if " apply -auto-approve" not in steps(infrastructure):
     errors.append("CD debe conservar el apply explícito, detrás del gate CD_ENABLED")
+deploy_text = str(deploy_jobs.get("deploy", {}))
+if "PLATFORM_IMAGES_JSON" not in deploy_text:
+    errors.append("CD debe exigir el digest privado de Fluent Bit antes de desplegar nodos sin NAT")
 if "workflow_dispatch" not in build.get("on", {}):
     errors.append("La construcción de imágenes debe ser controlada por workflow_dispatch")
 if "vars.CD_ENABLED == 'true'" not in str(build.get("jobs", {}).get("build-and-push", {}).get("if", "")):
@@ -100,6 +108,8 @@ if "kubectl argo rollouts" in deployment_script:
     errors.append("El despliegue no debe depender del plugin cliente de Argo Rollouts")
 if "condition=Healthy rollout/graphql-gateway" not in deployment_script:
     errors.append("El despliegue debe esperar el estado Healthy del Rollout")
+if "PLATFORM_IMAGES_JSON" not in deployment_script or "aws-for-fluent-bit" not in deployment_script:
+    errors.append("El despliegue debe renderizar Fluent Bit desde PLATFORM_IMAGES_JSON")
 
 if errors:
     print("VALIDACIÓN DE WORKFLOWS FALLÓ", file=sys.stderr)

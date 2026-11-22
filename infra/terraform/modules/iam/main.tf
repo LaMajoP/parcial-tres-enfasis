@@ -3,7 +3,8 @@ locals {
     station  = [var.table_arns.reservations]
     billing  = [var.table_arns.billing]
     dispatch = [var.table_arns.dispatch]
-    gateway  = [var.table_arns.saga, var.table_arns.flags]
+    # Query sobre GSI1 exige autorizar el ARN del índice además de la tabla.
+    gateway = concat([var.table_arns.saga, var.table_arns.flags], [for arn in [var.table_arns.saga, var.table_arns.flags] : "${arn}/index/*"])
   }
   service_accounts = {
     station   = "station-reservation"

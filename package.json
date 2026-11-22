@@ -28,6 +28,7 @@
     "demo:fail-billing": "node scripts/demo.mjs fail-billing",
     "demo:fail-charger": "node scripts/demo.mjs fail-charger",
     "demo:canary": "bash scripts/demo-canary.sh",
+    "demo:canary:kind": "bash scripts/demo-canary-kind.sh",
     "prefect:run": "python3 observability/prefect/flows.py --environment ${AEGISVOLT_ENV:-dev}",
     "github:prepare": "bash scripts/github-rulesets.sh"
   },
