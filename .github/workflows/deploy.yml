@@ -20,10 +20,30 @@ jobs:
       service_roles: "${{ steps.outputs.outputs.service_roles }}"
     steps:
       - uses: actions/checkout@v4
+      - name: Exigir roles e inputs reales del Environment
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          TF_OWNER: ${{ vars.TF_OWNER }}
+          VPC_CIDRS_JSON: ${{ vars.VPC_CIDRS_JSON }}
+          AVAILABILITY_ZONES_JSON: ${{ vars.AVAILABILITY_ZONES_JSON }}
+          EKS_ACCESS_PRINCIPAL_ARNS: ${{ vars.EKS_ACCESS_PRINCIPAL_ARNS }}
+          ENABLE_PRIVATE_API: ${{ vars.ENABLE_PRIVATE_API }}
+          INTERNAL_NLB_ARN: ${{ vars.INTERNAL_NLB_ARN }}
+          INTERNAL_NLB_DNS_NAME: ${{ vars.INTERNAL_NLB_DNS_NAME }}
+        run: |
+          for required in AWS_DEPLOY_ROLE_ARN AWS_REGION TF_STATE_BUCKET TF_OWNER VPC_CIDRS_JSON AVAILABILITY_ZONES_JSON EKS_ACCESS_PRINCIPAL_ARNS ENABLE_PRIVATE_API; do
+            test -n "${!required}" || { echo "Falta $required en el GitHub Environment ${{ github.ref_name }}." >&2; exit 78; }
+          done
+          case "$ENABLE_PRIVATE_API" in true|false) ;; *) echo "ENABLE_PRIVATE_API debe ser true o false." >&2; exit 78;; esac
+          if [[ "$ENABLE_PRIVATE_API" == true ]]; then
+            test -n "$INTERNAL_NLB_ARN" && test -n "$INTERNAL_NLB_DNS_NAME" || { echo "La API privada exige los outputs verificables del NLB interno." >&2; exit 78; }
+          fi
       - uses: hashicorp/setup-terraform@v3
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: "${{ vars.AWS_ROLE_ARN }}"
+          role-to-assume: "${{ vars.AWS_DEPLOY_ROLE_ARN }}"
           aws-region: "${{ vars.AWS_REGION }}"
           role-session-name: "aegisvolt-${{ github.ref_name }}-deploy"
       - name: Aplicar solo el workspace de la rama actualizada
@@ -33,6 +53,10 @@ jobs:
           TF_VAR_github_repository: "${{ github.repository }}"
           TF_VAR_vpc_cidrs: "${{ vars.VPC_CIDRS_JSON }}"
           TF_VAR_availability_zones: "${{ vars.AVAILABILITY_ZONES_JSON }}"
+          TF_VAR_eks_access_principal_arns: "${{ vars.EKS_ACCESS_PRINCIPAL_ARNS }}"
+          TF_VAR_enable_private_api: "${{ vars.ENABLE_PRIVATE_API }}"
+          TF_VAR_internal_nlb_arn: "${{ vars.INTERNAL_NLB_ARN }}"
+          TF_VAR_internal_nlb_dns_name: "${{ vars.INTERNAL_NLB_DNS_NAME }}"
         run: |
           test -n "${{ vars.TF_STATE_BUCKET }}" || { echo "TF_STATE_BUCKET obligatorio"; exit 1; }
           terraform -chdir=infra/terraform/environments init -reconfigure -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
@@ -58,7 +82,7 @@ jobs:
           cache: npm
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: "${{ vars.AWS_ROLE_ARN }}"
+          role-to-assume: "${{ vars.AWS_DEPLOY_ROLE_ARN }}"
           aws-region: "${{ vars.AWS_REGION }}"
           role-session-name: aegisvolt-dev-image-build
       - name: Construir una vez el commit de dev y publicar por digest
@@ -83,7 +107,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: "${{ vars.AWS_ROLE_ARN }}"
+          role-to-assume: "${{ vars.AWS_DEPLOY_ROLE_ARN }}"
           aws-region: "${{ vars.AWS_REGION }}"
           role-session-name: "aegisvolt-${{ github.ref_name }}-rollout"
       - name: Bloquear promoción sin manifiesto de digests aprobado

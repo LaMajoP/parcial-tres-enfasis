@@ -11,9 +11,10 @@ resource "aws_security_group" "endpoints" {
     cidr_blocks = [var.vpc_cidr]
   }
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "Respuesta TLS a workloads privados"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = [var.vpc_cidr]
   }
   tags = var.tags
@@ -27,7 +28,9 @@ resource "aws_vpc_endpoint" "gateway" {
   tags              = merge(var.tags, { Name = "aegisvolt-${var.environment}-${each.value}-gateway" })
 }
 resource "aws_vpc_endpoint" "interface" {
-  for_each            = toset(["logs", "execute-api", "ecr.api", "ecr.dkr", "sts"])
+  # Sin NAT, los nodos, el runner privado y AWS Load Balancer Controller deben
+  # alcanzar estas APIs por PrivateLink. `oidc-eks` permite IRSA sin DNS público.
+  for_each            = toset(["logs", "execute-api", "ecr.api", "ecr.dkr", "sts", "ec2", "elasticloadbalancing", "eks", "oidc-eks"])
   vpc_id              = var.vpc_id
   vpc_endpoint_type   = "Interface"
   service_name        = "com.amazonaws.${data.aws_region.current.name}.${each.value}"

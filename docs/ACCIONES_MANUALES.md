@@ -27,6 +27,8 @@ Este manual contiene solo accesos, aprobaciones o acciones externas. No cree man
 
 ## 2. Preparar AWS y presupuesto
 
+La secuencia completa de bootstrap, roles OIDC, workspaces, runner privado y primer plan está en [TERRAFORM_AWS_PRIMER.md](TERRAFORM_AWS_PRIMER.md). Este documento conserva las acciones externas transversales.
+
 1. Elija región con EKS y al menos dos AZ (por ejemplo `us-east-1`) y cree presupuesto/alertas en [AWS Billing Budgets](https://console.aws.amazon.com/billing/home#/budgets) al 50 %, 80 % y 100 %.
 2. Configure una identidad temporal con IAM Identity Center:
 
@@ -118,11 +120,12 @@ La primera creación remota de las tres ramas requiere una decisión de un admin
 
 En **Settings → Environments**, cree `dev`, `test`, `prod`; configure reviewers obligatorios en `prod`. Por Environment declare variables no secretas:
 
-- `AWS_ROLE_ARN`, `AWS_REGION`, `TF_STATE_BUCKET`, `TF_OWNER`
-- `VPC_CIDRS_JSON`, `AVAILABILITY_ZONES_JSON`
+- `AWS_ROLE_ARN` (solo lectura para plan), `AWS_DEPLOY_ROLE_ARN` (CD), `AWS_REGION`, `TF_STATE_BUCKET`, `TF_OWNER`
+- `VPC_CIDRS_JSON`, `AVAILABILITY_ZONES_JSON`, `EKS_ACCESS_PRINCIPAL_ARNS`
+- `ENABLE_PRIVATE_API`, `INTERNAL_NLB_ARN`, `INTERNAL_NLB_DNS_NAME`
 - `PROMOTED_IMAGES_JSON` (objeto con cinco referencias ECR `@sha256`; nunca tags)
 
-Configure trust OIDC con issuer `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com` y subject restringido a `repo:LaMajoP/parcial-tres-enfasis:ref:refs/heads/<ambiente>`. El rol de cada ambiente debe limitar state/prefijos y recursos del ambiente correspondiente.
+Configure trust OIDC con issuer `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com` y dos roles por Environment: uno de lectura para PR con merge ref y uno de despliegue restringido a `refs/heads/<ambiente>`. Los JSON de trust, la diferencia entre PR/push y los permisos requeridos están en [TERRAFORM_AWS_PRIMER.md](TERRAFORM_AWS_PRIMER.md); no use el mismo rol de escritura en un PR.
 
 Mantenga ausente la variable de repositorio `CD_ENABLED` (o en un valor distinto de `true`) durante la preparación. El workflow CD queda `skipped` y no puede llegar a `terraform apply` ni publicar en ECR hasta que un administrador la establezca explícitamente en `true` después de completar OIDC, backend, runner y aprobaciones.
 
