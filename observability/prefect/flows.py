@@ -33,7 +33,7 @@ def gateway_health(environment: str, gateway_url: str) -> dict[str, Any]:
 
 def _dynamo(environment: str):
     endpoint = os.getenv("DYNAMODB_ENDPOINT")
-    kwargs: dict[str, Any] = {"region_name": os.getenv("AWS_REGION", "us-east-1")}
+    kwargs: dict[str, Any] = {"region_name": os.getenv("AWS_REGION", "us-east-2")}
     if endpoint:
         kwargs.update(endpoint_url=endpoint, aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "local"), aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "local"))
     return boto3.resource("dynamodb", **kwargs).Table(os.getenv("TABLE_SAGA", f"aegisvolt-saga-{environment}"))
