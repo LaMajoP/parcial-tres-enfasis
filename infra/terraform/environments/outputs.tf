@@ -6,5 +6,4 @@ output "dynamodb_tables" { value = module.dynamodb.table_names }
 output "private_api_id" { value = module.api_gateway.private_api_id }
 output "private_api_url" { value = module.api_gateway.private_invoke_url }
 output "log_groups" { value = module.cloudwatch.log_group_names }
-output "ecr_repositories" { value = module.ecr.repository_urls }
 output "service_role_arns" { value = module.iam.service_role_arns }

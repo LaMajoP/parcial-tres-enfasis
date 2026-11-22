@@ -2,7 +2,7 @@ import { CreateTableCommand, DescribeTableCommand, DynamoDBClient, PutItemComman
 import { demoConnectors, demoWallet } from '@aegisvolt/contracts';
 
 const endpoint = process.env.DYNAMODB_ENDPOINT ?? 'http://localhost:8000';
-const client = new DynamoDBClient({ region: process.env.AWS_REGION ?? 'us-east-1', endpoint, credentials: { accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'local', secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'local' } });
+const client = new DynamoDBClient({ region: process.env.AWS_REGION ?? 'us-east-2', endpoint, credentials: { accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'local', secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'local' } });
 const domains = ['reservations', 'billing', 'dispatch', 'saga', 'flags'];
 const environments = ['dev', 'test', 'prod'];
 const environment = process.env.AEGISVOLT_ENV ?? 'dev';

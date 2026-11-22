@@ -17,6 +17,19 @@ jq -e --argjson required "$required" '
   exit 64
 }
 
+# Fluent Bit no forma parte del artefacto de aplicación que se promociona entre
+# ambientes. Su digest viene de un espejo privado, generado una vez por
+# `mirror-platform-images.sh`, para que el clúster sin NAT nunca descargue una
+# imagen pública durante el despliegue.
+platform_images_json="${PLATFORM_IMAGES_JSON:?PLATFORM_IMAGES_JSON es obligatorio}"
+jq -e '
+  type == "object" and
+  (.["aws-for-fluent-bit"] | type == "string" and test("@sha256:[0-9a-f]{64}$"))
+' <<<"$platform_images_json" >/dev/null || {
+  echo "PLATFORM_IMAGES_JSON debe incluir aws-for-fluent-bit como referencia @sha256 inmutable." >&2
+  exit 64
+}
+
 render_root="$(mktemp -d)"
 cleanup() { rm -rf "$render_root"; }
 trap cleanup EXIT
@@ -28,6 +41,9 @@ overlay="$render_root/kubernetes/overlays/$environment"
 while IFS=$'\t' read -r component image; do
   (cd "$overlay" && kustomize edit set image "aegisvolt/$component=$image")
 done < <(jq -r 'to_entries[] | "\(.key)\t\(.value)"' <<<"$images_json")
+
+fluent_bit_image="$(jq -r '.["aws-for-fluent-bit"]' <<<"$platform_images_json")"
+(cd "$overlay" && kustomize edit set image "aegisvolt/aws-for-fluent-bit=$fluent_bit_image")
 
 kubectl apply -k "$overlay"
 namespace="aegisvolt-$environment"

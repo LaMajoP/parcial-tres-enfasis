@@ -53,3 +53,15 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - ports: [{ protocol: TCP, port: 5173 }]
+---
+# Fluent Bit no coincide con las políticas de los servicios de dominio. Sin esta
+# salida, el default-deny impediría enviar logs al endpoint privado de CloudWatch.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: fluent-bit-cloudwatch-egress, namespace: aegisvolt }
+spec:
+  podSelector: { matchLabels: { app: aws-for-fluent-bit } }
+  policyTypes: [Egress]
+  egress:
+    - to: [{ ipBlock: { cidr: 0.0.0.0/0 } }]
+      ports: [{ protocol: TCP, port: 443 }]

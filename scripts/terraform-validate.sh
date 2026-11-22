@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-mapfile -t directories < <(find infra/terraform -type f -name '*.tf' -printf '%h\n' | sort -u)
-for directory in "${directories[@]}"; do
+for directory in infra/terraform/bootstrap-state infra/terraform/environments; do
   terraform -chdir="$directory" fmt -check -recursive
+  terraform -chdir="$directory" init -backend=false -input=false
+  terraform -chdir="$directory" validate
 done
-terraform -chdir=infra/terraform/environments init -backend=false
-terraform -chdir=infra/terraform/environments validate
+python3 scripts/validate_terraform_layout.py

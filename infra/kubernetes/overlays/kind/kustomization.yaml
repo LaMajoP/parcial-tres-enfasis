@@ -3,6 +3,13 @@
 namespace: aegisvolt-dev
 resources: [../dev]
 patches:
+  # Solo el laboratorio local habilita rutas de semilla para crear datos de
+  # prueba aislados. Los overlays dev/test/prod y EKS no reciben DEMO_MODE.
+  - target: { version: v1, kind: ConfigMap, name: aegisvolt-runtime }
+    patch: |-
+      - op: add
+        path: /data/DEMO_MODE
+        value: "true"
   - target: { group: argoproj.io, version: v1alpha1, kind: Rollout, name: graphql-gateway }
     patch: |-
       - op: remove

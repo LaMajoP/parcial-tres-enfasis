@@ -35,9 +35,26 @@ resource "aws_eks_cluster" "this" {
     endpoint_private_access = true
     endpoint_public_access  = false
   }
+  access_config {
+    authentication_mode                         = "API_AND_CONFIG_MAP"
+    bootstrap_cluster_creator_admin_permissions = false
+  }
   enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
   depends_on                = [aws_iam_role_policy_attachment.cluster]
   tags                      = var.tags
+}
+resource "aws_eks_access_entry" "deployer" {
+  for_each      = toset(var.access_principal_arns)
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = each.value
+  type          = "STANDARD"
+}
+resource "aws_eks_access_policy_association" "deployer" {
+  for_each      = aws_eks_access_entry.deployer
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = each.value.principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+  access_scope { type = "cluster" }
 }
 data "tls_certificate" "oidc" {
   url = aws_eks_cluster.this.identity[0].oidc[0].issuer
@@ -52,6 +69,8 @@ resource "aws_eks_node_group" "private" {
   node_group_name = "private-workloads"
   node_role_arn   = aws_iam_role.nodes.arn
   subnet_ids      = var.private_subnet_ids
+  ami_type        = "AL2023_x86_64_STANDARD"
+  capacity_type   = "ON_DEMAND"
   instance_types  = ["t3.medium"]
   scaling_config {
     desired_size = 2

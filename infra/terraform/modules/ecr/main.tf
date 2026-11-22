@@ -1,4 +1,18 @@
-locals { components = toset(["web", "graphql-gateway", "station-reservation", "billing-wallet", "energy-dispatch"]) }
+locals {
+  # Las cinco imágenes de aplicación se promueven por el pipeline. Las tres
+  # imágenes de plataforma se reflejan una vez desde una estación con Internet
+  # antes de iniciar nodos EKS privados sin NAT.
+  components = toset([
+    "web",
+    "graphql-gateway",
+    "station-reservation",
+    "billing-wallet",
+    "energy-dispatch",
+    "aws-for-fluent-bit",
+    "argo-rollouts",
+    "aws-load-balancer-controller",
+  ])
+}
 resource "aws_ecr_repository" "this" {
   for_each             = local.components
   name                 = "aegisvolt/${each.value}"

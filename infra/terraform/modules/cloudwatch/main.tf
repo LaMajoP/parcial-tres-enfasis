@@ -1,4 +1,15 @@
-locals { services = toset(["graphql-gateway", "station-reservation", "billing-wallet", "energy-dispatch", "fluent-bit"]) }
+locals {
+  # Deben coincidir exactamente con `app` en los Pods, porque Fluent Bit usa
+  # ese label para construir el nombre del grupo y no crea grupos dinámicos.
+  services = toset([
+    "graphql-gateway",
+    "station-reservation",
+    "billing-wallet",
+    "energy-dispatch",
+    "web",
+    "aws-for-fluent-bit",
+  ])
+}
 resource "aws_cloudwatch_log_group" "service" {
   for_each          = local.services
   name              = "/aegisvolt/${var.environment}/${each.value}"
