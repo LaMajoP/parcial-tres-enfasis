@@ -76,3 +76,39 @@ Fecha: 2026-11-20 (America/Bogota). Esta sección separa deliberadamente las pru
 - Configurar en cada Environment `AWS_ROLE_ARN`, `AWS_REGION`, `TF_STATE_BUCKET`, `TF_OWNER`, `VPC_CIDRS_JSON`, `AVAILABILITY_ZONES_JSON` y, al promover, `PROMOTED_IMAGES_JSON`.
 - Configurar confianza OIDC, backend S3, workspaces existentes y runner autohospedado privado con Docker, Node 24, Terraform, AWS CLI, kubectl, kustomize y jq. Solo entonces habilitar `TF_PLAN_ENABLED=true` para demostrar un plan autenticado real; `CD_ENABLED` permanece independiente hasta autorizar despliegues.
 - No se ejecutaron `terraform plan` autenticado, `terraform apply`, ECR, EKS, Argo en AWS ni una ejecución GitHub Actions del SHA actual.
+
+## Auditoría Terraform para AWS
+
+El root `bootstrap-state` declara un backend S3 parcial. Su primer `init` debe
+usar `-backend=false`, ya que crea el bucket; tras el primer apply autorizado,
+el procedimiento documentado migra su state local a
+`bootstrap/aegisvolt.tfstate` con lockfile S3.
+
+Fecha: 2026-11-20 (America/Bogota). Alcance: validación offline de HCL, providers, scripts, workflows y manifiestos. No se usaron credenciales AWS ni se ejecutaron `plan`, `apply` o `destroy` contra una cuenta.
+
+### Correcciones técnicas
+
+- El state `bootstrap-state` ahora posee los recursos globales de cuenta: ECR compartido y el proveedor OIDC de GitHub. Antes, cada workspace intentaría crear los mismos repositorios ECR; `dev`, `test` y `prod` habrían colisionado y no habría promoción del mismo digest.
+- El bucket de state conserva versionado, cifrado SSE-S3, bloqueo público y ahora ownership enforced, `prevent_destroy` y permisos explícitos para `GetBucketLocation`, versiones y el lockfile S3. Se retiró `bucket_key_enabled`: las S3 Bucket Keys aplican a SSE-KMS, no a SSE-S3 AES256.
+- La validación offline inicializaba solo `environments`. Ahora inicializa y valida ambos roots, y se versiona `bootstrap-state/.terraform.lock.hcl`.
+- EKS pasó a `1.35`, declara access entries para el rol de despliegue, nodos AL2023 privados y endpoints necesarios sin NAT: EC2, EKS, ELB, EKS OIDC, ECR, STS, CloudWatch y execute-api.
+- IRSA del gateway ahora autoriza el ARN de índices DynamoDB, necesario para consultar `GSI1`. Fluent Bit recibe egress TLS explícito hacia CloudWatch bajo el default-deny.
+- CI conserva `AWS_ROLE_ARN` como rol de plan read-only y CD usa `AWS_DEPLOY_ROLE_ARN`. Ambos propagan `EKS_ACCESS_PRINCIPAL_ARNS`; los inputs de API privada se validan antes de OIDC/Apply.
+
+| Comando / acción | Resultado real | Estado |
+|---|---|---|
+| `terraform fmt -check -recursive infra/terraform` | Formato válido tras las correcciones. | OK |
+| `npm run terraform:validate` | Inicializó con `-backend=false` y validó `bootstrap-state` y `environments` con AWS provider 5.100.0 y TLS 4.4.2. | OK |
+| `python3 scripts/validate_terraform_layout.py` | Confirmó state global/ECR, OIDC, access entries EKS, endpoints privados, índices DynamoDB y variables CI/CD. | OK |
+| `bash -n scripts/terraform-*.sh` | Sintaxis de scripts válida. | OK |
+| `python3 scripts/validate_workflows.py` | Gates `TF_PLAN_ENABLED`/`CD_ENABLED`, roles separados y variables Terraform validados estáticamente. | OK |
+| `python3 scripts/validate_kubernetes.py` | 38 manifiestos válidos; incluye egress CloudWatch para Fluent Bit. | OK |
+| `docker run … rhysd/actionlint:latest -no-color` | Workflows GitHub Actions sin diagnósticos. | OK |
+
+### Pendientes para un plan AWS real
+
+- Presupuesto, operador temporal, bootstrap aprobado, roles OIDC de plan/deploy y actualización posterior de la política del bucket con sus ARNs.
+- `terraform.tfvars` no versionado con CIDRs, AZ y principal de despliegue reales; creación explícita de los workspaces.
+- Environments GitHub con todas las variables del primer plan, protección de branches/reviewers y runner privado posterior al primer apply autorizado.
+- Instalación del AWS Load Balancer Controller, imagen Fluent Bit accesible sin NAT y segunda fase para habilitar API Gateway privada después de obtener el NLB interno.
+- No existe evidencia de plan remoto autenticado, recursos AWS, EKS, ECR o API Gateway creados.

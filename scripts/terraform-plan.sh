@@ -6,4 +6,4 @@ current="$(terraform -chdir=infra/terraform/environments workspace show)"
 if [[ "$current" == "default" || "$current" != "$environment" ]]; then
   terraform -chdir=infra/terraform/environments workspace select "$environment"
 fi
-terraform -chdir=infra/terraform/environments plan -var-file="terraform.tfvars" -out="plan-${environment}.tfplan"
+terraform -chdir=infra/terraform/environments plan -input=false -lock-timeout=5m -var-file="terraform.tfvars" -out="plan-${environment}.tfplan"

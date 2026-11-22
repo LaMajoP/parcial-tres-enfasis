@@ -1,16 +1,26 @@
 locals {
   environment = terraform.workspace
   tags = {
-    Project     = "AegisVolt"
-    Environment = local.environment
-    ManagedBy   = "Terraform"
-    Owner       = var.owner
+    Project          = "AegisVolt"
+    Environment      = local.environment
+    ManagedBy        = "Terraform"
+    Owner            = var.owner
+    GitHubRepository = var.github_repository
   }
 }
 check "workspace_is_explicit" {
   assert {
     condition     = contains(["dev", "test", "prod"], local.environment)
     error_message = "Seleccione workspace dev, test o prod; default está prohibido."
+  }
+}
+check "private_api_inputs_are_complete" {
+  assert {
+    condition = !var.enable_private_api || (
+      var.internal_nlb_arn != null && trimspace(var.internal_nlb_arn) != "" &&
+      var.internal_nlb_dns_name != null && trimspace(var.internal_nlb_dns_name) != ""
+    )
+    error_message = "enable_private_api exige ARN y DNS no vacíos de un NLB interno ya verificado."
   }
 }
 module "network" {
@@ -36,10 +46,14 @@ module "dynamodb" {
   point_in_time_recovery = !var.lab_profile
 }
 module "eks" {
-  source             = "../modules/eks"
-  environment        = local.environment
-  private_subnet_ids = module.network.private_subnet_ids
-  tags               = local.tags
+  source                = "../modules/eks"
+  environment           = local.environment
+  private_subnet_ids    = module.network.private_subnet_ids
+  access_principal_arns = var.eks_access_principal_arns
+  tags                  = local.tags
+  # Sin NAT, cree primero los endpoints usados por nodos, IRSA y el runner.
+  # Esto también evita que la lectura del emisor OIDC dependa de DNS público.
+  depends_on = [module.vpc_endpoints]
 }
 module "iam" {
   source            = "../modules/iam"
@@ -52,11 +66,6 @@ module "iam" {
   tags              = local.tags
 }
 data "aws_caller_identity" "current" {}
-module "ecr" {
-  source      = "../modules/ecr"
-  environment = local.environment
-  tags        = local.tags
-}
 module "cloudwatch" {
   source             = "../modules/cloudwatch"
   environment        = local.environment
