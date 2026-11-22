@@ -13,6 +13,7 @@ test-results/
 *.tfvars
 !*.tfvars.example
 infra/terraform/bootstrap-state/backend.s3.tf
+infra/terraform/local-emulation/backend.localstack.tf
 __pycache__/
 .pytest_cache/
 .venv/
