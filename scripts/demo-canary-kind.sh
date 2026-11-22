@@ -29,7 +29,7 @@ kubectl -n "$namespace" wait --for=condition=Healthy "rollout/$rollout" --timeou
 
 current_hash="$(kubectl -n "$namespace" get rollout "$rollout" -o jsonpath='{.status.currentPodHash}')"
 canary_pod="$(kubectl -n "$namespace" get pods -l "app=graphql-gateway,rollouts-pod-template-hash=${current_hash}" -o jsonpath='{.items[0].metadata.name}')"
-test -n "$canary_pod" || { echo "No se encontró el pod de la revisión Canary." >&2; exit 1; }
+[[ -n "$canary_pod" ]] || { echo "No se encontró el pod de la revisión Canary." >&2; exit 1; }
 
 kubectl -n "$namespace" exec "$canary_pod" -- node -e '
 fetch("http://127.0.0.1:4000/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: "{ environment }" }) })

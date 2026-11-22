@@ -36,7 +36,7 @@ try {
   if (mode === 'fail-billing' && (saga.state !== 'COMPENSATED' || result.reserveAndStartCharging.error?.code !== 'INSUFFICIENT_FUNDS' || !events.includes('RELEASE_SUCCEEDED'))) {
     throw new Error(`La demo fail-billing debía compensar por saldo insuficiente; obtuvo ${saga.state}/${result.reserveAndStartCharging.error?.code ?? 'sin código'}.`);
   }
-  if (mode === 'fail-charger' && (saga.state !== 'COMPENSATED' || events.indexOf('REFUND_SUCCEEDED') < 0 || events.indexOf('REFUND_SUCCEEDED') > events.indexOf('RELEASE_SUCCEEDED'))) {
+  if (mode === 'fail-charger' && (saga.state !== 'COMPENSATED' || !events.includes('REFUND_SUCCEEDED') || events.indexOf('REFUND_SUCCEEDED') > events.indexOf('RELEASE_SUCCEEDED'))) {
     throw new Error(`La demo fail-charger debía reembolsar antes de liberar; obtuvo ${saga.state}.`);
   }
   if (mode === 'success' && process.env.KEEP_DEMO_SESSION !== 'true') {
