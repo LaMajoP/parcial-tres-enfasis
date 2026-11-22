@@ -20,16 +20,15 @@ Este manual contiene solo accesos, aprobaciones o acciones externas. No cree man
    npm run seed
    npm run test:integration
    npm run test:e2e
-   docker compose down
    ```
 
-   Éxito esperado: gateway y tres servicios `healthy`, pruebas verdes. Si Docker responde permiso denegado, resuelva la pertenencia al grupo/servicio con el administrador local; no use privilegios amplios en scripts del repositorio.
+   Éxito esperado: gateway y tres servicios `healthy`, pruebas verdes. El comando no borra volúmenes existentes. Si Docker responde permiso denegado, resuelva la pertenencia al grupo/servicio con el administrador local; no use privilegios amplios en scripts del repositorio.
 
 ## 2. Preparar AWS y presupuesto
 
 La secuencia completa de bootstrap, roles OIDC, workspaces, runner privado y primer plan está en [TERRAFORM_AWS_PRIMER.md](TERRAFORM_AWS_PRIMER.md). Este documento conserva las acciones externas transversales.
 
-1. Elija región con EKS y al menos dos AZ (por ejemplo `us-east-1`) y cree presupuesto/alertas en [AWS Billing Budgets](https://console.aws.amazon.com/billing/home#/budgets) al 50 %, 80 % y 100 %.
+1. La configuración de AegisVolt está alineada a `us-east-2`; seleccione dos AZ reales de esa región y cree presupuesto/alertas antes de cualquier apply. En el estado actual, la SCP y la decisión de no incurrir en costos bloquean esta fase.
 2. Configure una identidad temporal con IAM Identity Center:
 
    ```bash
@@ -51,9 +50,14 @@ La secuencia completa de bootstrap, roles OIDC, workspaces, runner privado y pri
 2. Revise y, solo con aprobación explícita de costo, aplique:
 
    ```bash
-   AWS_PROFILE=aegisvolt-admin terraform -chdir=infra/terraform/bootstrap-state init
+   # El root bootstrap inicia con state local: todavía no existe el bucket.
+   AWS_PROFILE=aegisvolt-admin terraform -chdir=infra/terraform/bootstrap-state init -input=false
    AWS_PROFILE=aegisvolt-admin terraform -chdir=infra/terraform/bootstrap-state plan -var-file=/tmp/aegisvolt-bootstrap.tfvars
    AWS_PROFILE=aegisvolt-admin terraform -chdir=infra/terraform/bootstrap-state apply -var-file=/tmp/aegisvolt-bootstrap.tfvars
+   # Solo después del apply autorizado, prepare el backend y migre ese state.
+   cp infra/terraform/bootstrap-state/backend.s3.tf.example infra/terraform/bootstrap-state/backend.s3.tf
+   AWS_PROFILE=aegisvolt-admin terraform -chdir=infra/terraform/bootstrap-state init -migrate-state -input=false \
+     -backend-config="bucket=REEMPLAZAR_BUCKET" -backend-config="region=us-east-2"
    ```
 
 3. Compruebe versión y acceso público bloqueado:
@@ -68,7 +72,7 @@ La secuencia completa de bootstrap, roles OIDC, workspaces, runner privado y pri
 1. Prepare `infra/terraform/environments/terraform.tfvars` desde el ejemplo (está ignorado). Después:
 
    ```bash
-   bash scripts/terraform-init.sh REEMPLAZAR_BUCKET us-east-1
+   bash scripts/terraform-init.sh REEMPLAZAR_BUCKET us-east-2
    terraform -chdir=infra/terraform/environments workspace list
    ```
 
@@ -124,6 +128,7 @@ En **Settings → Environments**, cree `dev`, `test`, `prod`; configure reviewer
 - `VPC_CIDRS_JSON`, `AVAILABILITY_ZONES_JSON`, `EKS_ACCESS_PRINCIPAL_ARNS`
 - `ENABLE_PRIVATE_API`, `INTERNAL_NLB_ARN`, `INTERNAL_NLB_DNS_NAME`
 - `PROMOTED_IMAGES_JSON` (objeto con cinco referencias ECR `@sha256`; nunca tags)
+- `PLATFORM_IMAGES_JSON` (al menos `aws-for-fluent-bit` con digest privado ECR; no tags)
 
 Configure trust OIDC con issuer `https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com` y dos roles por Environment: uno de lectura para PR con merge ref y uno de despliegue restringido a `refs/heads/<ambiente>`. Los JSON de trust, la diferencia entre PR/push y los permisos requeridos están en [TERRAFORM_AWS_PRIMER.md](TERRAFORM_AWS_PRIMER.md); no use el mismo rol de escritura en un PR.
 
@@ -147,7 +152,7 @@ El CD anotará los ServiceAccounts con los roles Terraform por IRSA y aplicará 
 ## 7. Construir una vez y promover
 
 1. Solo después de habilitar `CD_ENABLED=true` y aprobar infraestructura de `dev`, el job `build_dev_images` construye y publica una vez, tras `infrastructure`, y adjunta `promoted-images-<SHA>.json`. Si falló antes de publicar, use **Actions → Construir imágenes inmutables de desarrollo → Run workflow** con ese SHA de dev; no use el workflow manual para recompilar un tag ya existente.
-2. Descargue `promoted-images-<SHA>/promoted-images.json`. Revise que contenga exactamente `graphql-gateway`, `station-reservation`, `billing-wallet`, `energy-dispatch`, `web`, todos con `@sha256`.
+2. Descargue `promoted-images-<SHA>/promoted-images.json`. Revise que contenga exactamente `graphql-gateway`, `station-reservation`, `billing-wallet`, `energy-dispatch`, `web`, todos con `@sha256`. Antes del primer EKS sin NAT, un operador debe ejecutar `scripts/mirror-platform-images.sh` desde una estación con Internet y registrar el digest de `aws-for-fluent-bit` en `PLATFORM_IMAGES_JSON`; el script no se ejecuta desde CI ni ha sido ejecutado en esta cuenta.
 3. Copie ese JSON exacto a `PROMOTED_IMAGES_JSON` de **test** y luego **prod** al avanzar el mismo artefacto. El CD de dev usa el output del build; el de test/prod se bloquea si falta JSON o contiene tags.
 4. Promueva solo por PR `feature/* → dev`, `dev → test`, `test → prod`; no recompila test/prod.
 

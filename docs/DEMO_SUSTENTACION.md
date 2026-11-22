@@ -27,11 +27,11 @@ Muestre `dev`, `test`, `prod` y versiones S3. Explique `workspace_key_prefix=env
 En UI, elija conector disponible y pulse **Confirmar reserva y carga**. Muestre `COMPLETED`, `sessionId`, timeline y `correlationId`. En consola:
 
 ```bash
-KEEP_DEMO_SESSION=true npm run demo:success
+npm run demo:success
 curl -s http://localhost:3003/sessions | jq
 ```
 
-Después cierre la sesión desde UI o GraphQL. Explique reserva condicional, movimiento DynamoDB atómico y telemetría del simulador.
+Por defecto el script cierra su propia sesión para dejar el conector disponible; use `KEEP_DEMO_SESSION=true npm run demo:success` solo si desea mantenerla visible y ciérrela después desde GraphQL. Explique reserva condicional, movimiento DynamoDB atómico y telemetría del simulador.
 
 ## 3. Compensaciones e idempotencia (2 min)
 
@@ -42,7 +42,7 @@ npm run demo:fail-billing
 npm run demo:fail-charger
 ```
 
-El caso billing deja el conector disponible y no activa hardware. El caso charger muestra `COMPENSATED` con `REFUND_SUCCEEDED` antes de `RELEASE_SUCCEEDED`. `demo:fail-charger` vuelve a apagar su flag en `finally`. Abra `docs/SAGA_ESTADOS_Y_FALLOS.md` para la máquina durable y recuperación.
+Cada demo crea una billetera local única y elige un conector `AVAILABLE`; billing deja el conector disponible y no activa hardware. El caso charger muestra `COMPENSATED` con `REFUND_SUCCEEDED` antes de `RELEASE_SUCCEEDED`. `demo:fail-charger` vuelve a apagar su flag en `finally`. Abra `docs/SAGA_ESTADOS_Y_FALLOS.md` para la máquina durable y recuperación.
 
 ## 4. Flags, logs y Prefect (2 min)
 

@@ -1,13 +1,9 @@
 terraform {
   required_version = ">= 1.10.0"
-  # El bucket aún no existe en la primera ejecución. Inicialice esa ejecución
-  # con -backend=false y, tras crear el bucket, migre este state al backend
-  # parcial con `terraform init -migrate-state -backend-config=...`.
-  backend "s3" {
-    key          = "bootstrap/aegisvolt.tfstate"
-    encrypt      = true
-    use_lockfile = true
-  }
+  # Este root inicia deliberadamente con backend local: es el responsable de
+  # crear el bucket S3 que albergará su propio state. Tras el primer apply
+  # autorizado, copie backend.s3.tf.example a backend.s3.tf (ignorado por Git)
+  # y ejecute `terraform init -migrate-state` con bucket y región verificados.
   required_providers {
     aws = {
       source  = "hashicorp/aws"

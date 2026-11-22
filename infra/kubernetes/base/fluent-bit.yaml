@@ -52,7 +52,10 @@ spec:
       tolerations: [{ operator: Exists }]
       containers:
         - name: fluent-bit
-          image: public.ecr.aws/aws-observability/aws-for-fluent-bit:2.32.4
+          # `scripts/deploy-kubernetes.sh` reemplaza esta referencia por el
+          # digest privado aprobado en PLATFORM_IMAGES_JSON. Así los nodos
+          # privados no dependen de ECR público ni de Internet/NAT.
+          image: aegisvolt/aws-for-fluent-bit:2.32.4
           env:
             - name: AWS_REGION
               valueFrom: { configMapKeyRef: { name: aegisvolt-runtime, key: AWS_REGION } }

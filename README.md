@@ -15,21 +15,20 @@ npm run seed
 
 Abra `http://localhost:5173`, GraphiQL en `http://localhost:4000/graphql`, DynamoDB Local en `http://localhost:8000` y Prefect en `http://localhost:4200`. Las credenciales `local/local` solo sirven para DynamoDB Local y no son credenciales AWS.
 
-Si el clone aún no tiene `package-lock.json`, no ejecute una instalación no reproducible: siga el paso único de `scripts/generate-lockfile.sh` en [docs/ORDEN_EJECUCION_FINAL.md](docs/ORDEN_EJECUCION_FINAL.md). La ausencia actual se debe a que el sandbox no resolvió npm; está declarada como bloqueo, no como éxito.
-
 Para detener sin borrar la evidencia local: `docker compose down`. Para borrar también tablas locales: `docker compose down -v`.
 
 ## Recorridos demostrables
 
 ```bash
 npm run demo:success
+npm run demo:fail-billing
 npm run demo:fail-charger
 npm run test:integration
 npm run test:resilience
 npm run test:e2e
 ```
 
-`demo:fail-billing` no falsifica una falla: el caso se ejecuta en `tests/integration/saga.integration.test.ts` creando una billetera real de 1 centavo en DynamoDB Local. El flujo completo y comandos están en [docs/DEMO_SUSTENTACION.md](docs/DEMO_SUSTENTACION.md).
+Cada demo crea una billetera efímera en DynamoDB Local y selecciona un conector `AVAILABLE`; `demo:success` lo libera al final salvo que se defina `KEEP_DEMO_SESSION=true`. El flujo completo y comandos están en [docs/DEMO_SUSTENTACION.md](docs/DEMO_SUSTENTACION.md).
 
 ## Componentes
 
@@ -42,10 +41,8 @@ npm run test:e2e
 
 ## Seguridad y límites
 
-Los servicios no incluyen secretos. En AWS usan IRSA/roles por dominio y las tablas se inyectan por configuración. El modo `DEMO_MODE=true` expone rutas de semilla solo para Compose local; no está definido en manifests Kubernetes. La autorización de la UI demo utiliza `x-aegisvolt-role`; AWS debe integrar OIDC/JWT antes de abrir una entrada de navegador.
+Los servicios no incluyen secretos. En AWS usan IRSA/roles por dominio y las tablas se inyectan por configuración. El modo `DEMO_MODE=true` expone rutas de semilla solo en Compose y en el overlay `kind`; no está presente en los overlays dev/test/prod. La autorización de la UI demo utiliza `x-aegisvolt-role`; AWS debe integrar OIDC/JWT antes de abrir una entrada de navegador.
 
 La auditoría por requisito está en [docs/AUDITORIA_CONTRA_PDF.md](docs/AUDITORIA_CONTRA_PDF.md) y las verificaciones reales, incluidos bloqueos, en [docs/RESULTADOS_VERIFICACION.md](docs/RESULTADOS_VERIFICACION.md). Consulte [docs/ACCIONES_MANUALES.md](docs/ACCIONES_MANUALES.md) antes de usar AWS o GitHub.
 
-Validación del pipeline CI mediante Pull Request.
-
-Validación del pipeline CI mediante Pull Request.
+El estado verificable de Compose, Kind, Terraform y AWS está en [docs/RESULTADOS_VERIFICACION.md](docs/RESULTADOS_VERIFICACION.md).

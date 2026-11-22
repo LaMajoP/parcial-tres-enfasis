@@ -1,8 +1,8 @@
-aws_region         = "us-east-1"
+aws_region         = "us-east-2"
 owner              = "student@example.edu"
 github_repository  = "YOUR_GITHUB_ORG/YOUR_REPOSITORY"
 eks_access_principal_arns = ["arn:aws:iam::123456789012:role/aegisvolt-dev-deploy"]
-availability_zones = ["us-east-1a", "us-east-1b"]
+availability_zones = ["us-east-2a", "us-east-2b"]
 vpc_cidrs          = { dev = "10.40.0.0/16", test = "10.41.0.0/16", prod = "10.42.0.0/16" }
 # Solo active luego de desplegar el Service NLB interno desde Kubernetes y copiar sus outputs verificables.
 enable_private_api    = false

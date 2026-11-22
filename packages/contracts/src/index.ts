@@ -115,7 +115,7 @@ export const tableName = (domain: 'reservations' | 'billing' | 'dispatch' | 'sag
 export const dynamoDocumentClient = (): DynamoDBDocumentClient => {
   const endpoint = process.env.DYNAMODB_ENDPOINT;
   const client = new DynamoDBClient({
-    region: process.env.AWS_REGION ?? 'us-east-1',
+  region: process.env.AWS_REGION ?? 'us-east-2',
     endpoint,
     credentials: endpoint ? {
       accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'local',

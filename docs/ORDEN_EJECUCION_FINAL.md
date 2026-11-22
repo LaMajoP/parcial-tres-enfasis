@@ -41,7 +41,7 @@ npm run seed
 npm run test:integration
 npm run test:resilience
 npm run test:e2e
-KEEP_DEMO_SESSION=true npm run demo:success
+npm run demo:success
 npm run demo:fail-billing
 npm run demo:fail-charger
 docker compose logs --no-color graphql-gateway station-reservation-service billing-wallet-service energy-dispatch-service
@@ -52,14 +52,24 @@ Abra `http://localhost:5173` y Prefect en `http://localhost:4200`. `demo:success
 ## 4. Kubernetes local (límite explícito)
 
 ```bash
-npm run kind:down
 npm run kind:up
 kubectl -n aegisvolt-dev get pods,svc,rollouts,networkpolicy
 kubectl -n aegisvolt-dev wait --for=condition=Healthy rollout/graphql-gateway --timeout=5m
 kubectl -n aegisvolt-dev wait --for=condition=Available rollout/graphql-gateway --timeout=5m
 ```
 
-`kind:up` reconstruye el inicializador y ejecuta una semilla condicional de DynamoDB Local en cada arranque. No borra el volumen `aegisvolt_dynamodb-data`: conserva operaciones existentes y recrea solo las entidades demo que falten. El script valida el Rollout por las condiciones del CRD con `kubectl wait`; el plugin opcional `kubectl argo` no es necesario.
+`kind:up` reutiliza el clúster `aegisvolt` existente, reconstruye el inicializador y ejecuta una semilla condicional de DynamoDB Local. No borra el volumen `aegisvolt_dynamodb-data`: conserva operaciones existentes y recrea solo las entidades demo que falten. El overlay `kind` habilita `DEMO_MODE=true` solo para crear billeteras efímeras de prueba y el script valida el Rollout por las condiciones del CRD con `kubectl wait`; el plugin opcional `kubectl argo` no es necesario.
+
+Para reiniciar desde cero, evalúe primero si la evidencia local puede descartarse. Solo entonces ejecute deliberadamente `npm run kind:down`; este proyecto no lo hace automáticamente.
+
+Canary local reproducible (defecto de GraphQL y rollback manual automático):
+
+```bash
+npm run demo:canary:kind
+kubectl -n aegisvolt-dev get rollout graphql-gateway
+```
+
+El script usa un pod de la revisión Canary, verifica HTTP 500 y restaura la imagen previa aun cuando falle la prueba. No hay ponderación ALB ni AnalysisRun/CloudWatch en Kind.
 
 Kind valida manifiestos, imágenes, probes y el controlador Argo. No puede demostrar ALB weighted routing, VPCE, API Gateway privada ni CloudWatch; esos puntos pertenecen a la fase AWS.
 

@@ -113,9 +113,12 @@ jobs:
       - name: Bloquear promoción sin manifiesto de digests aprobado
         env:
           PROMOTED_IMAGES_JSON: "${{ github.ref_name == 'dev' && needs.build_dev_images.outputs.images || vars.PROMOTED_IMAGES_JSON }}"
+          PLATFORM_IMAGES_JSON: "${{ vars.PLATFORM_IMAGES_JSON }}"
         run: |
           test -n "$PROMOTED_IMAGES_JSON" || { echo "PROMOTED_IMAGES_JSON debe contener los cinco digests aprobados; test/prod no recompilan."; exit 1; }
           jq -e 'type == "object" and all(.[]; type == "string" and test("@sha256:[0-9a-f]{64}$"))' <<<"$PROMOTED_IMAGES_JSON" >/dev/null
+          test -n "$PLATFORM_IMAGES_JSON" || { echo "PLATFORM_IMAGES_JSON debe contener el digest privado de aws-for-fluent-bit."; exit 1; }
+          jq -e 'type == "object" and (.["aws-for-fluent-bit"] | type == "string" and test("@sha256:[0-9a-f]{64}$"))' <<<"$PLATFORM_IMAGES_JSON" >/dev/null
       - name: Conectar al EKS privado e inyectar identidades IRSA mínimas
         env:
           AWS_REGION: "${{ vars.AWS_REGION }}"
@@ -136,4 +139,5 @@ jobs:
       - name: Aplicar digests inmutables y esperar AnalysisRun de Argo
         env:
           PROMOTED_IMAGES_JSON: "${{ github.ref_name == 'dev' && needs.build_dev_images.outputs.images || vars.PROMOTED_IMAGES_JSON }}"
+          PLATFORM_IMAGES_JSON: "${{ vars.PLATFORM_IMAGES_JSON }}"
         run: scripts/deploy-kubernetes.sh "${{ github.ref_name }}"

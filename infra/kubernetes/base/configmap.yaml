@@ -5,7 +5,7 @@ metadata:
   namespace: aegisvolt
 data:
   AEGISVOLT_ENV: dev
-  AWS_REGION: us-east-1
+  AWS_REGION: us-east-2
   TABLE_RESERVATIONS: aegisvolt-reservations-dev
   TABLE_BILLING: aegisvolt-billing-dev
   TABLE_DISPATCH: aegisvolt-dispatch-dev

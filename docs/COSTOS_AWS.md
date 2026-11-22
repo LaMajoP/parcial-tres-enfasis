@@ -2,7 +2,7 @@
 
 ## Riesgos de costo
 
-EKS cobra plano de control por hora; nodos EC2, NLB/ALB, Interface VPC Endpoints, NAT Gateway (si se habilita), ECR, CloudWatch Logs/métricas, transferencia y un runner privado pueden facturar aunque haya poco tráfico. Producción con dos AZ incrementa disponibilidad y costo. La estimación exacta depende de región, tipos, uso y precios vigentes: usar AWS Pricing Calculator y un AWS Budget antes de `apply`.
+EKS cobra plano de control por hora; nodos EC2, NLB/ALB, Interface VPC Endpoints, NAT Gateway (si se habilita), ECR, CloudWatch Logs/métricas, transferencia y un runner privado pueden facturar aunque haya poco tráfico. Producción con dos AZ incrementa disponibilidad y costo. La estimación exacta depende de región, tipos, uso y precios vigentes: usar AWS Pricing Calculator y un AWS Budget antes de `apply`. En la situación actual no hay recursos AWS AegisVolt creados ni se autoriza incurrir en estos costos.
 
 ## Perfiles
 
@@ -23,8 +23,8 @@ El perfil actual evita NAT por defecto y declara endpoints necesarios para ECR, 
 | Nodos | Managed node group AL2023, mínimo 2 `t3.medium`, máximo 4 | Dos instancias desde el primer apply, más EBS, transferencia y escalamiento. |
 | VPC Endpoints | S3/DynamoDB gateway y 9 interfaces: Logs, execute-api, ECR API/DKR, STS, EC2, ELB, EKS, OIDC EKS | Cada endpoint de interfaz se cobra por AZ; con dos AZ son múltiples ENI facturables por ambiente. |
 | DynamoDB | Cinco tablas on-demand | PITR se habilita fuera de `lab_profile`; revisar retención, requests y almacenamiento. |
-| CloudWatch | Cinco log groups, métricas, dashboard y alarma | Ingesta, retención y métricas personalizadas crecen con pods y telemetría. |
-| ECR compartido | Cinco repositorios inmutables, escaneo y retención de 30 imágenes | Almacenamiento y escaneo; se crea una vez por cuenta, no por workspace. |
+| CloudWatch | Seis log groups (`web` y `aws-for-fluent-bit` incluidos), métricas, dashboard y alarma | Ingesta, retención y métricas personalizadas crecen con pods y telemetría. |
+| ECR compartido | Ocho repositorios inmutables: cinco de aplicación y Fluent Bit, Argo Rollouts y AWS Load Balancer Controller | Almacenamiento y escaneo; se crea una vez por cuenta, no por workspace. El mirroring previo de imágenes añade almacenamiento, pero evita requerir NAT en nodos privados. |
 | ALB/NLB y API Gateway | ALB/NLB por controlador; API privada solo en segunda fase | Cargos horarios/datos; no active la segunda fase sin NLB interno y pruebas privadas. |
 
 Antes de cualquier apply, estime **un ambiente**, no los tres simultáneamente. `dev`, `test` y `prod` crean VPC/EKS/endpoints/tables aislados; aplicar los tres multiplica los costos recurrentes.

@@ -1,5 +1,70 @@
 # Resultados de verificación reales
 
+> La sección del 2026-11-22 es el estado vigente y prevalece sobre notas históricas de este archivo cuando haya contradicción. No equivale a un despliegue AWS.
+
+## Ejecución local y revisión de preparación — 2026-11-22
+
+### Alcance y restricciones respetadas
+
+- No se ejecutó `terraform apply`, `destroy`, `import`, una migración de state, publicación ECR, push/merge, cambio IAM/SCP ni configuración de facturación.
+- La cuenta AWS `289663675871` en `us-east-2` mantiene las restricciones SCP descritas por la propietaria; por decisión expresa no se crean recursos ni se asumen costos. La infraestructura AWS permanece **definida en código, no desplegada**.
+- `TF_PLAN_ENABLED` y `CD_ENABLED` permanecen desactivados. No se activó ningún despliegue automático.
+
+### Correcciones realizadas
+
+- `bootstrap-state` ya no declara un backend S3 antes de que exista el bucket: inicia con state local. `backend.s3.tf.example` se copia localmente y se migra solo después de un apply autorizado; el archivo generado está ignorado.
+- Toda la configuración de aplicación, ejemplos Terraform y defaults locales quedó alineada a `us-east-2` (DynamoDB Local sigue siendo local).
+- CloudWatch declara los grupos que Fluent Bit deriva realmente de labels: incluye `web` y `aws-for-fluent-bit`, no el grupo incongruente `fluent-bit`.
+- ECR declara ocho repositorios: cinco de aplicación y tres de plataforma. `scripts/mirror-platform-images.sh` deja preparada la futura réplica privada de Fluent Bit, Argo Rollouts y AWS Load Balancer Controller; **no se ejecutó ni publicó imágenes**.
+- CD exige un digest privado de Fluent Bit en `PLATFORM_IMAGES_JSON`; con nodos privados sin NAT no puede depender de imágenes públicas.
+- `kind-up.sh` reutiliza el clúster y reinicia el CRD Rollout mediante una anotación de PodTemplate, no mediante el subcomando incompatible `kubectl rollout restart`.
+- Pruebas y demos usan flotas/billeteras efímeras y un conector `AVAILABLE`; no dependen de saldo, sesiones o volúmenes conservados de ejecuciones previas. La prueba de concurrencia libera su reserva ganadora.
+- El overlay Kind habilita `DEMO_MODE=true` solo localmente para sembrar datos aislados; dev/test/prod no lo habilitan.
+
+### Herramientas detectadas
+
+| Herramienta | Resultado |
+|---|---|
+| Docker Engine / Compose | Disponibles (`29.10.0` / `5.8.0`); Compose levantó todos los servicios locales. |
+| Node / npm | Node `24.19.0`; `npm ci --no-audit --no-fund` instaló 355 paquetes bloqueados. |
+| Terraform | Disponible; providers desde lockfile (AWS `5.100.0`, TLS `4.4.2`). |
+| Kind / kubectl | Clúster `aegisvolt` existente, kubectl `1.37.2`, Kustomize integrado `5.8.1`. |
+| Helm / binario `kustomize` | No presentes; no fueron necesarios para el overlay Kind. El runner AWS futuro sí debe instalar `kustomize` autónomo. |
+
+### Pruebas ejecutadas
+
+| Comando o comprobación | Resultado real |
+|---|---|
+| `npm ci --no-audit --no-fund` | OK; 355 paquetes. Avisos de deprecación de dependencias, sin error. |
+| `npm run lint`, `npm run build`, `npm run test:graphql-schema`, `npm test` | OK; build de todos los workspaces, esquema válido, 3/3 unitarias. |
+| `docker compose up --build -d`, `npm run seed` | OK; DynamoDB Local, tres servicios, gateway y web saludables. Se preservó el volumen existente. |
+| `npm run test:integration` | OK; 6/6: rechazos terminales, saldo insuficiente, éxito, idempotencia, reembolso antes de liberar y timeout. |
+| `npm run test:resilience` | OK; 1/1: dos flotas no adquieren el mismo conector y se libera la reserva de prueba. |
+| `npm run test:e2e` | OK; 1/1 Playwright: UI, disponibilidad, flags, sesión `COMPLETED` con flota aislada y cierre de la sesión. |
+| `npm run demo:success` | OK; `COMPLETED`, reserva/débito/activación y cierre propio. |
+| `npm run demo:fail-billing` | OK; `COMPENSATED`, `INSUFFICIENT_FUNDS` y `RELEASE_SUCCEEDED`. |
+| `npm run demo:fail-charger` | OK; `COMPENSATED`, `REFUND_SUCCEEDED` antes de `RELEASE_SUCCEEDED`; el flag se restableció. |
+| `npm run kind:up` y consultas `kubectl` | Clúster reutilizado; deployments de dominio/web 2/2, Argo controller 1/1 y Rollout `Healthy=True`, `Available=True`, `Completed=True`. |
+| SAGA mediante port-forward de Kind | OK con billetera `kind-proof-20261122`: reserva, débito, activación, `COMPLETED`; tras `closeCharging`, evento `CHARGE_STOPPED` y `connector-04=AVAILABLE`. |
+| Canary Kind controlado | El pod de revisión defectuosa respondió HTTP 500 `DEMO_CANARY_FAILURE` conservando readiness. Se restauró la imagen sana y el Rollout volvió a `Healthy=True`/`Available=True`. Es rollback manual local, no AnalysisRun AWS. |
+| `terraform fmt -check -recursive`, `npm run terraform:validate` | OK; los dos roots inicializados con backend deshabilitado para validar, sin state remoto ni apply. |
+| `terraform ... bootstrap-state plan -refresh=false` | BLOQUEADO antes de planificar: el provider AWS no encontró una fuente de credenciales en este proceso. No hubo cambios ni llamadas de creación. `aws sts get-caller-identity` sí devolvió la cuenta/rol esperados; falta hacer visible esa sesión al proceso Terraform, sin guardar secretos. |
+| `validate_terraform_layout.py`, `validate_kubernetes.py`, `validate_workflows.py`, `kubectl kustomize`, `bash -n`, `git diff --check` | OK; 38 documentos Kubernetes, workflows/gates y sintaxis validados. |
+
+### Estado local final
+
+- Compose permanece arriba y saludable; no se ejecutó `docker compose down` ni se eliminaron volúmenes.
+- Kind permanece arriba. El Rollout final referencia `aegisvolt/graphql-gateway:0.0.0`, no la imagen defectuosa.
+- Fluent Bit está deliberadamente sin pods en Kind (`nodeSelector` local) para no simular CloudWatch. Los logs JSON/EMF se observan en stdout local, no en CloudWatch.
+- `git ls-remote --heads origin main dev test prod` confirmó `dev=7060e448…`; `main`, `test` y `prod=1831034…`. Las refs de seguimiento locales de `origin/*` están desactualizadas y no se hizo `fetch`, merge ni push. La rama de trabajo local sigue siendo `feature/terraform-aws` en `f24a548…` con los cambios no confirmados de esta ejecución.
+
+### Límites aún no verificables
+
+- Backend S3, locking remoto, OIDC/IAM, ECR real, VPC, endpoints privados, EKS, IRSA, ALB/NLB, API Gateway privada, CloudWatch y costos: bloqueados por SCP y por falta de autorización de gasto.
+- Aunque AWS CLI autenticó `AccountFullAccessRole` en `289663675871`, el provider Terraform no recibió esa fuente de credenciales al ejecutar el plan. Resolver la propagación de la sesión (sin access keys persistentes) es un requisito previo incluso para un plan autenticado.
+- El Canary 20/80, el tráfico ALB y el AnalysisRun que consulta CloudWatch no pueden inferirse de Kind. Kind solo prueba reconciliación Argo, health/readiness, defecto controlado y rollback manual.
+- No hubo run GitHub Actions del SHA actual, publicación ECR ni evaluación remota de reglas de protección; las ramas/remoto no se modificaron.
+
 Fecha de auditoría/corrección: 2026-11-20 (America/Bogota). Baseline: `e7bb393` en `main`.
 
 ## Corrección de `CONNECTOR_NOT_FOUND`
@@ -79,10 +144,10 @@ Fecha: 2026-11-20 (America/Bogota). Esta sección separa deliberadamente las pru
 
 ## Auditoría Terraform para AWS
 
-El root `bootstrap-state` declara un backend S3 parcial. Su primer `init` debe
-usar `-backend=false`, ya que crea el bucket; tras el primer apply autorizado,
-el procedimiento documentado migra su state local a
-`bootstrap/aegisvolt.tfstate` con lockfile S3.
+El root `bootstrap-state` inicia sin backend remoto, ya que crea el bucket. El
+validador puede usar `-backend=false`; tras el primer apply autorizado se copia
+`backend.s3.tf.example` a un archivo local ignorado y el procedimiento migra
+ese state a `bootstrap/aegisvolt.tfstate` con lockfile S3.
 
 Fecha: 2026-11-20 (America/Bogota). Alcance: validación offline de HCL, providers, scripts, workflows y manifiestos. No se usaron credenciales AWS ni se ejecutaron `plan`, `apply` o `destroy` contra una cuenta.
 
