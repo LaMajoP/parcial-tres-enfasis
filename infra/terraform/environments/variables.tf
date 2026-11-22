@@ -2,7 +2,7 @@ variable "aws_region" {
   type = string
   validation {
     condition     = can(regex("^[a-z]{2}(-[a-z]+)+-[0-9]+$", var.aws_region))
-    error_message = "aws_region debe tener formato de región AWS, por ejemplo us-east-1."
+    error_message = "aws_region debe tener formato de región AWS, por ejemplo us-east-2."
   }
 }
 variable "owner" {

@@ -22,7 +22,7 @@ services:
     command: ["node", "--import", "tsx", "scripts/bootstrap-dynamodb.mjs"]
     environment: &aws-local
       AEGISVOLT_ENV: dev
-      AWS_REGION: us-east-1
+      AWS_REGION: us-east-2
       DYNAMODB_ENDPOINT: http://dynamodb-local:8000
       AWS_ACCESS_KEY_ID: local
       AWS_SECRET_ACCESS_KEY: local

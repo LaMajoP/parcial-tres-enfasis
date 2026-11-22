@@ -1,0 +1,10 @@
+# Crear este archivo localmente SOLO después del primer apply autorizado de
+# bootstrap. Está ignorado por Git porque el nombre del bucket pertenece a la
+# cuenta, pero no contiene secretos.
+terraform {
+  backend "s3" {
+    key          = "bootstrap/aegisvolt.tfstate"
+    encrypt      = true
+    use_lockfile = true
+  }
+}

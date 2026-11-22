@@ -3,10 +3,16 @@ set -euo pipefail
 command -v kind >/dev/null || { echo "Instale Kind para esta verificación local." >&2; exit 69; }
 command -v kubectl >/dev/null || { echo "Instale kubectl para esta verificación local." >&2; exit 69; }
 command -v docker >/dev/null || { echo "Instale Docker para esta verificación local." >&2; exit 69; }
-kind create cluster --name aegisvolt --wait 60s
+if kind get clusters | grep -Fxq aegisvolt; then
+  echo "Reutilizando el clúster Kind aegisvolt existente; no se eliminarán datos ni nodos."
+else
+  kind create cluster --name aegisvolt --wait 60s
+fi
 # El controlador es necesario para que un recurso Rollout se ejecute realmente.
 kubectl create namespace argo-rollouts --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/releases/download/v1.8.3/install.yaml
+if ! kubectl get crd rollouts.argoproj.io >/dev/null 2>&1; then
+  kubectl apply -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/releases/download/v1.8.3/install.yaml
+fi
 kubectl -n argo-rollouts rollout status deployment/argo-rollouts --timeout=3m
 for component in graphql-gateway station-reservation billing-wallet energy-dispatch; do
   docker build --target runtime -t "aegisvolt/$component:0.0.0" .
@@ -40,7 +46,12 @@ kubectl -n aegisvolt-dev rollout restart deployment/station-reservation deployme
 # El ConfigMap se parchea después de aplicar el overlay, por lo que también se
 # reinicia el Rollout: las cuatro réplicas del gateway deben recibir el endpoint
 # dinámico de DynamoDB Local y no depender de una carrera durante el arranque.
-kubectl -n aegisvolt-dev rollout restart rollout/graphql-gateway
+# `kubectl rollout restart` solo conoce cargas nativas (Deployment, etc.), no
+# CRDs de Argo. Cambiar una anotación de su PodTemplate crea una revisión nueva
+# que el controlador Argo reconcilia sin requerir el plugin `kubectl argo`.
+rollout_restart_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+kubectl -n aegisvolt-dev patch rollout graphql-gateway --type=merge \
+  -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"aegisvolt.io/restarted-at\":\"${rollout_restart_at}\"}}}}}"
 
 kubectl -n aegisvolt-dev rollout status deployment/station-reservation --timeout=3m
 kubectl -n aegisvolt-dev rollout status deployment/billing-wallet --timeout=3m

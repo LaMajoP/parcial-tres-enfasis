@@ -12,7 +12,7 @@ No ejecute `terraform apply`, `destroy` ni habilite los gates de GitHub hasta co
 
 ## 2. Prerrequisitos y presupuesto
 
-1. Seleccione una región y dos AZ reales. El ejemplo usa `us-east-1a` y `us-east-1b`.
+1. La configuración y ejemplos del repositorio usan `us-east-2`, con dos AZ reales como `us-east-2a` y `us-east-2b`.
 2. Cree un AWS Budget y alertas antes de aprovisionar EKS, endpoints o balanceadores.
 3. Configure una sesión temporal de IAM Identity Center para un operador inicial; no cree access keys permanentes.
 4. Revise [COSTOS_AWS.md](COSTOS_AWS.md) y confirme quién autoriza el primer apply.
@@ -32,17 +32,21 @@ La versión EKS declarada es `1.35`; se eligió para evitar crear un clúster nu
 3. Tras la aprobación de costo, ejecute en una estación administrativa autenticada:
 
    ```bash
-   terraform -chdir=infra/terraform/bootstrap-state init -backend=false -input=false
+   # `bootstrap-state` no declara backend remoto todavía: este init usa state local.
+   terraform -chdir=infra/terraform/bootstrap-state init -input=false
    terraform -chdir=infra/terraform/bootstrap-state plan -var-file=/tmp/aegisvolt-bootstrap.tfvars
    # Solo con autorización explícita:
    terraform -chdir=infra/terraform/bootstrap-state apply -var-file=/tmp/aegisvolt-bootstrap.tfvars
+   # Crear el archivo ignorado solo cuando el bucket ya existe.
+   cp infra/terraform/bootstrap-state/backend.s3.tf.example infra/terraform/bootstrap-state/backend.s3.tf
    terraform -chdir=infra/terraform/bootstrap-state init -migrate-state -input=false \
      -backend-config="bucket=NOMBRE_BUCKET" -backend-config="region=REGION"
    terraform -chdir=infra/terraform/bootstrap-state output github_actions_oidc_provider_arn
    ```
 
 La primera ejecución usa state local porque es precisamente la que crea el
-bucket. El último `init -migrate-state` traslada ese state al prefijo
+bucket. `backend.s3.tf` se crea localmente desde el ejemplo solo después de ese
+apply y está ignorado por Git. El último `init -migrate-state` traslada ese state al prefijo
 `bootstrap/aegisvolt.tfstate` y activa el bloqueo S3 nativo; no descarte el
 state local ni acepte prompts de migración sin revisar el destino.
 
@@ -152,6 +156,7 @@ ENABLE_PRIVATE_API           # false inicialmente; true solo tras verificar el N
 INTERNAL_NLB_ARN             # vacío mientras ENABLE_PRIVATE_API=false
 INTERNAL_NLB_DNS_NAME        # vacío mientras ENABLE_PRIVATE_API=false
 PROMOTED_IMAGES_JSON         # test/prod: cinco referencias @sha256 aprobadas
+PLATFORM_IMAGES_JSON         # aws-for-fluent-bit privado @sha256 para nodos sin NAT
 ```
 
 Mantenga las variables de repositorio siguientes ausentes o distintas de `true` durante esta preparación:
@@ -169,7 +174,7 @@ El perfil no usa NAT. Además de S3/DynamoDB, declara endpoints para ECR, STS, C
 
 1. Primer apply aprobado: deje `ENABLE_PRIVATE_API=false`.
 2. Desde red privada, instale AWS Load Balancer Controller con su rol IRSA mínimo y despliegue los manifiestos; espere el NLB interno `graphql-gateway-stable`.
-3. Si no hay NAT, refleje previamente las imágenes públicas de Fluent Bit, AWS Load Balancer Controller y Argo Rollouts hacia ECR privado, o autorice una ruta de salida controlada para el bootstrap. Ninguna imagen `public.ecr.aws`, Docker Hub o GHCR debe suponerse accesible desde nodos sin Internet.
+3. Si no hay NAT, refleje previamente las imágenes públicas de Fluent Bit, AWS Load Balancer Controller y Argo Rollouts hacia los repositorios ECR privados declarados. `scripts/mirror-platform-images.sh` hace esa operación desde una estación con Internet y emite referencias por digest; no se ejecuta en los nodos ni se ha ejecutado en la cuenta. Ninguna imagen `public.ecr.aws`, Docker Hub o GHCR debe suponerse accesible desde nodos sin Internet.
 4. Copie ARN/DNS verificados del NLB a las variables del Environment, ponga `ENABLE_PRIVATE_API=true`, ejecute un nuevo plan y revíselo antes del segundo apply autorizado.
 
 ## 8. Runner privado y verificación final

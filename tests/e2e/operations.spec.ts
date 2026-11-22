@@ -1,10 +1,28 @@
 import { expect, test } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
+
 test('muestra ambiente, disponibilidad, flags y permite iniciar una sesión', async ({ page }) => {
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Control de recarga confiable' })).toBeVisible();
-  await expect(page.getByText('Disponibilidad de conectores')).toBeVisible();
-  await expect(page.getByText('ENABLE_DYNAMIC_SURGE_PRICING')).toBeVisible();
-  await page.getByRole('button', { name: 'Confirmar reserva y carga' }).click();
-  await expect(page.getByText(/COMPLETED|COMPENSATED|COMPENSATION_FAILED/).first()).toBeVisible({ timeout: 12_000 });
-  await expect(page.getByText('Sesión seleccionada')).toBeVisible();
+  const fleetId = `e2e-${randomUUID()}`;
+  const billing = process.env.BILLING_SERVICE_URL ?? 'http://localhost:3002';
+  const gateway = process.env.GRAPHQL_URL ?? 'http://localhost:4000/graphql';
+  let sagaId: string | undefined;
+  const seeded = await page.request.post(`${billing}/seed`, { data: { fleetId, balanceCents: 500_000 } });
+  expect(seeded.ok()).toBe(true);
+  try {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Control de recarga confiable' })).toBeVisible();
+    await expect(page.getByText('Disponibilidad de conectores')).toBeVisible();
+    await expect(page.getByText('ENABLE_DYNAMIC_SURGE_PRICING')).toBeVisible();
+    await page.getByLabel('Flota').fill(fleetId);
+    await page.getByRole('button', { name: 'Confirmar reserva y carga' }).click();
+    await expect(page.getByText('COMPLETED').first()).toBeVisible({ timeout: 12_000 });
+    await expect(page.getByText('Sesión seleccionada')).toBeVisible();
+    sagaId = (await page.locator('.two-columns .panel').nth(1).locator('code').textContent())?.trim();
+    expect(sagaId).toBeTruthy();
+  } finally {
+    if (sagaId) {
+      const closed = await page.request.post(gateway, { headers: { 'x-aegisvolt-role': 'admin-demo' }, data: { query: 'mutation Close($id:ID!){ closeCharging(sagaId:$id){ state } }', variables: { id: sagaId } } });
+      expect(closed.ok()).toBe(true);
+    }
+  }
 });
