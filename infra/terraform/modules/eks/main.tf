@@ -1,5 +1,13 @@
 data "aws_partition" "current" {}
 
+# Las claves deben depender únicamente de los ARNs configurados, no de
+# atributos calculados de aws_eks_access_entry. Esto permite que Terraform
+# planifique una asociación e importe/reconcilie un clúster existente en una
+# sola pasada, incluso cuando el entry aún no existe.
+locals {
+  access_principals = { for principal_arn in var.access_principal_arns : principal_arn => principal_arn }
+}
+
 resource "aws_iam_role" "cluster" {
   name               = "aegisvolt-${var.environment}-eks-cluster"
   assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Principal = { Service = "eks.amazonaws.com" }, Action = "sts:AssumeRole" }] })
@@ -27,9 +35,10 @@ resource "aws_iam_role_policy_attachment" "nodes_ecr" {
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/AmazonEC2ContainerRegistryPullOnly"
 }
 resource "aws_eks_cluster" "this" {
-  name     = "aegisvolt-${var.environment}"
-  role_arn = aws_iam_role.cluster.arn
-  version  = var.cluster_version
+  name                          = "aegisvolt-${var.environment}"
+  role_arn                      = aws_iam_role.cluster.arn
+  version                       = var.cluster_version
+  bootstrap_self_managed_addons = var.bootstrap_self_managed_addons
   vpc_config {
     subnet_ids              = var.private_subnet_ids
     endpoint_private_access = true
@@ -37,24 +46,27 @@ resource "aws_eks_cluster" "this" {
   }
   access_config {
     authentication_mode                         = "API_AND_CONFIG_MAP"
-    bootstrap_cluster_creator_admin_permissions = false
+    bootstrap_cluster_creator_admin_permissions = var.bootstrap_cluster_creator_admin_permissions
   }
   enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
   depends_on                = [aws_iam_role_policy_attachment.cluster]
   tags                      = var.tags
 }
 resource "aws_eks_access_entry" "deployer" {
-  for_each      = toset(var.access_principal_arns)
+  for_each      = local.access_principals
   cluster_name  = aws_eks_cluster.this.name
   principal_arn = each.value
   type          = "STANDARD"
 }
 resource "aws_eks_access_policy_association" "deployer" {
-  for_each      = aws_eks_access_entry.deployer
+  for_each      = local.access_principals
   cluster_name  = aws_eks_cluster.this.name
-  principal_arn = each.value.principal_arn
+  principal_arn = each.value
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
   access_scope { type = "cluster" }
+  # Las claves permanecen estáticas, pero la API de Floci aún necesita que el
+  # entry haya sido persistido antes de asociar la política.
+  depends_on = [aws_eks_access_entry.deployer]
 }
 data "tls_certificate" "oidc" {
   url = aws_eks_cluster.this.identity[0].oidc[0].issuer

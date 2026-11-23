@@ -1,0 +1,14 @@
+# Variante verificable sobre el k3s real que Floci crea para EKS. Reutiliza los
+# parches locales de Kind (emptyDir /tmp para tsx y Nginx, DEMO_MODE y Fluent
+# Bit no programado) y conserva Deployments, probes, NetworkPolicies y Argo.
+# Elimina sólo los acoplamientos que exigen un AWS ALB Controller real.
+namespace: aegisvolt-dev
+resources: [../kind]
+patches:
+  - target: { version: v1, kind: Service, name: graphql-gateway-stable }
+    patch: |-
+      - op: remove
+        path: /metadata/annotations
+      - op: replace
+        path: /spec/type
+        value: ClusterIP
