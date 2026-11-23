@@ -1,0 +1,53 @@
+# Emulador AWS local para AegisVolt. Es deliberadamente independiente de
+# compose.yaml, que conserva DynamoDB Local como evidencia académica previa.
+#
+# Seguridad: el API sólo se publica en loopback. El socket Docker es necesario
+# para que Floci 2.5.0 pueda crear el k3s que implementa EKS; un montaje :ro no
+# convierte el socket en read-only a nivel de API, por lo que este compose debe
+# ejecutarse únicamente en una estación de desarrollo de confianza.
+name: aegisvolt-floci
+
+services:
+  floci:
+    image: floci/floci:2.5.0
+    container_name: aegisvolt-floci
+    user: root
+    environment:
+      FLOCI_RUN_AS_ROOT: "true"
+      FLOCI_DEFAULT_REGION: us-east-2
+      FLOCI_STORAGE_MODE: persistent
+      FLOCI_STORAGE_PERSISTENT_PATH: /app/data
+      # Evita que un stop/restart del control-plane destruya un k3s EKS real.
+      FLOCI_SERVICES_EKS_KEEP_RUNNING_ON_SHUTDOWN: "true"
+      # Los recursos EKS hijos se unen a la misma red aislada que Floci.
+      FLOCI_SERVICES_EKS_DOCKER_NETWORK: aegisvolt-floci-net
+    ports:
+      - "127.0.0.1:4567:4566"
+    volumes:
+      - floci-data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # La imagen 2.5.0 no incluye wget; su HEALTHCHECK de imagen falla aunque
+    # la API esté disponible. Bash sí está presente, por lo que se comprueba
+    # una respuesta HTTP 200 sin introducir herramientas ni imágenes extra.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          /bin/bash -ec 'exec 3<>/dev/tcp/127.0.0.1/4566;
+          printf "GET /_localstack/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n" >&3;
+          IFS= read -r status <&3; [[ "$${status}" == *" 200 "* ]]'
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks: [floci]
+    restart: unless-stopped
+
+volumes:
+  # Volumen con nombre: Docker no lo elimina cuando el contenedor se recrea.
+  floci-data:
+    name: aegisvolt-floci-data
+
+networks:
+  floci:
+    name: aegisvolt-floci-net
