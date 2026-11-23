@@ -24,7 +24,7 @@ trap cleanup EXIT
 
 curl --fail-with-body --silent --show-error "${headers[@]}" "$api" > "$work_dir/current.json"
 
-checks='["promotion-policy","lockfile","lint-build","unit-tests","integration-tests","resilience-tests","e2e-tests","image-build","terraform-offline","terraform-plan"]'
+checks='["promotion-policy","lockfile","lint-build","unit-tests","integration-tests","resilience-tests","e2e-tests","image-build","terraform-offline"]'
 for branch in dev test prod; do
   payload="$work_dir/$branch.json"
   python3 - "$branch" "$checks" > "$payload" <<'PY'

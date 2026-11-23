@@ -1,5 +1,29 @@
 # Resultados de verificación reales
 
+## Evidencia local complementaria — 2026-11-22
+
+Los resultados de esta sección fueron ejecutados y confirmados en la terminal
+local. Las pruebas funcionales recientes usaron Docker Compose y DynamoDB
+Local; no se ejecutaron dentro de pods EKS. Floci se verificó por separado
+mediante su API emulada.
+
+| Comando o comprobación | Resultado confirmado | Alcance |
+|---|---|---|
+| `npm run test:graphql-schema` | Aprobado. | Esquema GraphQL local. |
+| `npm run test:integration` | 6/6 aprobadas. | Docker Compose y DynamoDB Local. |
+| `npm run test:resilience` | 1/1 aprobada. | Docker Compose y DynamoDB Local. |
+| `npm run test:e2e` | 1/1 aprobada. | UI sobre servicios locales. |
+| `python -m pytest /opt/aegisvolt/prefect/tests/test_flows.py -q -p no:cacheprovider` con `PYTHONPATH=/opt/aegisvolt/prefect` dentro del contenedor Prefect | 1/1 aprobada; 6 advertencias no bloqueantes. | Test de clasificación/auditoría Prefect local. |
+| Estado de Docker Compose | Gateway GraphQL, tres microservicios y frontend saludables. | Servicios locales; DynamoDB Local. |
+| `./scripts/floci-verify.sh` | Floci respondió; 15 tablas DynamoDB y tres clústeres EKS registrados. | API emulada de Floci, no AWS real. |
+
+`scripts/github-rulesets.sh` ya no requiere el check `terraform-plan`: el job
+se omite cuando `TF_PLAN_ENABLED` está desactivado, por lo que ese status no
+se produciría para satisfacer el ruleset. Los checks de CI que sí se ejecutan
+siguen siendo obligatorios. Al habilitar el plan, el workflow mantiene sus
+validaciones de configuración y ejecuta el plan real; no se afirma que ese
+plan se haya ejecutado en esta verificación.
+
 > La sección del 2026-11-22 es el estado vigente y prevalece sobre notas históricas de este archivo cuando haya contradicción. No equivale a un despliegue AWS.
 
 ## Ejecución local y revisión de preparación — 2026-11-22

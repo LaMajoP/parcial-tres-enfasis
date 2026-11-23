@@ -1,5 +1,27 @@
 # AegisVolt — entrega local con Floci
 
+## Evidencia funcional reciente — 2026-11-22
+
+Las pruebas funcionales siguientes se ejecutaron en Docker Compose con
+DynamoDB Local: `npm run test:graphql-schema` (aprobado),
+`npm run test:integration` (6/6), `npm run test:resilience` (1/1) y
+`npm run test:e2e` (1/1). El gateway GraphQL, los tres microservicios y el
+frontend estuvieron saludables. La prueba Prefect ejecutada dentro de su
+contenedor fue `python -m pytest /opt/aegisvolt/prefect/tests/test_flows.py
+-q -p no:cacheprovider` con `PYTHONPATH=/opt/aegisvolt/prefect`: 1/1 aprobada,
+con seis advertencias no bloqueantes.
+
+Por separado, `./scripts/floci-verify.sh` confirmó respuesta de la API
+emulada Floci, 15 tablas DynamoDB y tres clústeres EKS registrados. Estas
+pruebas funcionales recientes no se ejecutaron dentro de pods EKS. Conservan
+su alcance local y no demuestran servicios AWS reales.
+
+El generador de rulesets en `scripts/github-rulesets.sh` exige los checks de
+CI presentes en el workflow y omite `terraform-plan`, porque GitHub omite ese
+job cuando `TF_PLAN_ENABLED` está desactivado. Cuando se activa, el workflow
+continúa exigiendo la configuración real y ejecuta el plan AWS; no hay
+evidencia aquí de un plan ni despliegue AWS.
+
 ## Resultado comprobado
 
 El laboratorio se ejecutó únicamente contra Floci `2.5.0` en
