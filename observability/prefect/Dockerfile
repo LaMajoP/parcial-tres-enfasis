@@ -10,10 +10,11 @@ RUN useradd --create-home --uid 10001 aegisvolt \
     && chown -R 10001:10001 /usr/local/lib/python3.12/site-packages/prefect/server/ui_build
 
 
-COPY requirements.txt /tmp/requirements.txt
+COPY requirements.lock /tmp/requirements.lock
 
 RUN pip install --no-cache-dir --only-binary=:all: \
-    -r /tmp/requirements.txt
+    --require-hashes \
+    -r /tmp/requirements.lock
 
 ENV HOME=/home/aegisvolt
 ENV PREFECT_HOME=/home/aegisvolt/.prefect
