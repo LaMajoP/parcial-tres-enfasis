@@ -1,0 +1,5 @@
+# Copiar a backend.localstack.tf solo después del bootstrap local. El archivo
+# generado está ignorado para que este root pueda crear su propio bucket primero.
+terraform {
+  backend "s3" {}
+}

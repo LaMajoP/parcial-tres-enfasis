@@ -107,10 +107,17 @@ services:
       retries: 12
     networks: [aegisvolt]
   prefect:
-    image: prefecthq/prefect:3.1.15-python3.12
+    build: ./observability/prefect
+    image: aegisvolt-prefect:local
     command: ["prefect", "server", "start", "--host", "0.0.0.0"]
     ports: ["4200:4200"]
-    environment: { PREFECT_SERVER_API_HOST: 0.0.0.0 }
+    environment:
+      PREFECT_SERVER_API_HOST: 0.0.0.0
+      PREFECT_API_URL: http://127.0.0.1:4200/api
+      AWS_REGION: us-east-2
+      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
     volumes: ["./observability/prefect:/opt/aegisvolt/prefect:ro"]
     networks: [aegisvolt]
 volumes: { dynamodb-data: {} }
