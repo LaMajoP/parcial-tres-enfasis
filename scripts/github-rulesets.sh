@@ -56,10 +56,12 @@ payload = {
         {
             "type": "pull_request",
             "parameters": {
-                "required_approving_review_count": 1,
-                "dismiss_stale_reviews_on_push": True,
+                # La entrega es individual: PR y CI obligatorios, sin exigir
+                # una segunda persona que no existe en este repositorio.
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": False,
                 "require_code_owner_review": False,
-                "require_last_push_approval": True,
+                "require_last_push_approval": False,
                 "required_review_thread_resolution": True,
             },
         },

@@ -55,7 +55,7 @@ spec:
           # `scripts/deploy-kubernetes.sh` reemplaza esta referencia por el
           # digest privado aprobado en PLATFORM_IMAGES_JSON. Así los nodos
           # privados no dependen de ECR público ni de Internet/NAT.
-          image: aegisvolt/aws-for-fluent-bit:2.32.4
+          image: aegisvolt/aws-for-fluent-bit:3.5.6
           env:
             - name: AWS_REGION
               valueFrom: { configMapKeyRef: { name: aegisvolt-runtime, key: AWS_REGION } }

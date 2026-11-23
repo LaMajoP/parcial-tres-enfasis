@@ -33,9 +33,8 @@ class FlociFluentBitTests(unittest.TestCase):
         pod_spec = ds["spec"]["template"]["spec"]
         self.assertEqual(pod_spec.get("nodeSelector", {}), {})
         config = next(item for item in self.full_overlay if item.get("kind") == "ConfigMap" and item["metadata"]["name"] == "aws-for-fluent-bit")["data"]
-        self.assertIn("endpoint              172.27.0.2", config["fluent-bit.conf"])
-        self.assertIn("port                  4566", config["fluent-bit.conf"])
-        self.assertIn("tls                   Off", config["fluent-bit.conf"])
+        self.assertIn("endpoint              http://172.27.0.2:4566", config["fluent-bit.conf"])
+        self.assertIn("Name                  cloudwatch", config["fluent-bit.conf"])
         self.assertNotIn("Name                  kubernetes", config["fluent-bit.conf"])
 
     def test_cloudwatch_egress_is_only_floci_and_port_4566(self) -> None:
@@ -72,7 +71,9 @@ class FlociFluentBitTests(unittest.TestCase):
         config = next(item for item in self.observability if item.get("kind") == "ConfigMap" and item["metadata"]["name"] == "aws-for-fluent-bit")["data"]["fluent-bit.conf"]
         for field in ("timestamp", "level", "event", "service", "environment", "correlation_id", "service_group"):
             self.assertIn(field, source)
-        self.assertIn("log_group_template    /aegisvolt/$environment/$service_group", config)
+        self.assertIn("Name                  cloudwatch", config)
+        self.assertIn("endpoint              http://172.27.0.2:4566", config)
+        self.assertIn("log_group_name        /aegisvolt/${AEGISVOLT_ENV}/$(service_group)", config)
         self.assertIn("auto_create_group     false", config)
         self.assertIn("Regex                 $correlation_id .+", config)
         self.assertIn("Regex                 $service_group ^(graphql-gateway|station-reservation|billing-wallet|energy-dispatch)$", config)

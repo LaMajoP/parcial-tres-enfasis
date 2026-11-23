@@ -9,7 +9,9 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
-        runAsGroup: 10001
+        # k3s writes container logs as root:root 0640. Keep a non-root UID,
+        # but use the root group to read the read-only log mount.
+        runAsGroup: 0
       containers:
         - name: fluent-bit
           env:
@@ -24,7 +26,7 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 10001
-            runAsGroup: 10001
+            runAsGroup: 0
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:

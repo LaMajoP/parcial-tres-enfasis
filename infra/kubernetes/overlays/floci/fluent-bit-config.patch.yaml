@@ -35,14 +35,11 @@ data:
         Match                 aegisvolt.*
         Regex                 $service_group ^(graphql-gateway|station-reservation|billing-wallet|energy-dispatch)$
     [OUTPUT]
-        Name                  cloudwatch_logs
+        Name                  cloudwatch
         Match                 aegisvolt.*
         region                ${AWS_REGION}
-        endpoint              172.27.0.2
-        port                  4566
-        tls                   Off
-        log_group_name        /aegisvolt/${AEGISVOLT_ENV}/aws-for-fluent-bit
-        log_group_template    /aegisvolt/$environment/$service_group
+        endpoint              http://172.27.0.2:4566
+        log_group_name        /aegisvolt/${AEGISVOLT_ENV}/$(service_group)
         log_stream_prefix     floci-
         auto_create_group     false
   aegisvolt-parsers.conf: |

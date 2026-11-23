@@ -27,3 +27,9 @@ jobs:
         run: echo "environment=$(bash scripts/floci-environment.sh push "$PUSH_BRANCH")" >> "$GITHUB_OUTPUT"
       - name: Plan, bloquear destrucción y aplicar solo el workspace del push
         run: bash scripts/floci-ci-terraform.sh apply "${{ steps.target.outputs.environment }}"
+      - name: Construir e importar aplicación y colector local
+        run: bash scripts/floci-build-images.sh
+      - name: Desplegar solo el ambiente del push y sembrar datos demo faltantes
+        run: bash scripts/floci-eks-deploy.sh "aegisvolt-${{ steps.target.outputs.environment }}"
+      - name: Verificar SAGA y logs reales del ambiente desplegado
+        run: bash scripts/floci-smoke.sh "${{ steps.target.outputs.environment }}"

@@ -12,7 +12,7 @@ for command in aws docker jq; do
   command -v "$command" >/dev/null || { echo "Falta $command" >&2; exit 69; }
 done
 
-fluent_bit_source="${FLUENT_BIT_SOURCE_IMAGE:-public.ecr.aws/aws-observability/aws-for-fluent-bit:2.32.4}"
+fluent_bit_source="${FLUENT_BIT_SOURCE_IMAGE:-public.ecr.aws/aws-observability/aws-for-fluent-bit:3.5.6}"
 registry="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${AWS_REGION}.amazonaws.com"
 output_file="${PLATFORM_IMAGES_FILE:-platform-images.json}"
 

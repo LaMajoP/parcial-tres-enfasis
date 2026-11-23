@@ -10,3 +10,9 @@ for component in graphql-gateway station-reservation billing-wallet energy-dispa
   docker build --target runtime -t "aegisvolt/${component}:0.0.0" .
 done
 docker build --target web-runtime -t aegisvolt/web:0.0.0 .
+
+# La imagen de plataforma se importa a containerd junto con la aplicación.
+# El tag está fijado; no se utiliza latest ni un registry AWS real.
+fluent_bit_source=public.ecr.aws/aws-observability/aws-for-fluent-bit:3.5.6
+docker image inspect "$fluent_bit_source" >/dev/null 2>&1 || docker pull "$fluent_bit_source"
+docker tag "$fluent_bit_source" aegisvolt/aws-for-fluent-bit:3.5.6
