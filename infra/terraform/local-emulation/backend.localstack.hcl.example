@@ -1,0 +1,15 @@
+# Copiar fuera de Git antes de init -migrate-state. Todas las rutas son loopback.
+bucket                      = "aegisvolt-local-terraform-state"
+key                         = "aegisvolt.tfstate"
+workspace_key_prefix        = "env"
+region                      = "us-east-2"
+access_key                  = "local"
+secret_key                  = "local"
+skip_credentials_validation = true
+skip_metadata_api_check     = true
+skip_requesting_account_id  = true
+use_path_style              = true
+
+endpoints = {
+  s3 = "http://127.0.0.1:4566"
+}
