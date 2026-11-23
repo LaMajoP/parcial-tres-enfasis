@@ -9,9 +9,12 @@ test-results/
 .DS_Store
 *.tfstate
 *.tfstate.*
+*.tfplan
 .terraform/
 *.tfvars
 !*.tfvars.example
+!infra/terraform/local-floci/floci.tfvars
+!infra/terraform/local-floci-bootstrap/floci.tfvars
 infra/terraform/bootstrap-state/backend.s3.tf
 infra/terraform/local-emulation/backend.localstack.tf
 __pycache__/
@@ -20,3 +23,4 @@ __pycache__/
 prefect.db
 *.pem
 *.key
+artifacts/local-floci-state-backups/
