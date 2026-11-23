@@ -1,10 +1,22 @@
 # Variante verificable sobre el k3s real que Floci crea para EKS. Reutiliza los
-# parches locales de Kind (emptyDir /tmp para tsx y Nginx, DEMO_MODE y Fluent
-# Bit no programado) y conserva Deployments, probes, NetworkPolicies y Argo.
+# parches locales de Kind (emptyDir /tmp para tsx y Nginx, DEMO_MODE) y
+# habilita Fluent Bit aquí contra el CloudWatch Logs emulado de Floci.
 # Elimina sólo los acoplamientos que exigen un AWS ALB Controller real.
 namespace: aegisvolt-dev
 resources: [../kind]
 patches:
+  # Kind agrega este selector para dejar CloudWatch desactivado en ese entorno.
+  # Floci tiene un endpoint emulado local y puede programar el DaemonSet.
+  - path: unschedule-fluent-bit.patch.yaml
+    target: { group: apps, version: v1, kind: DaemonSet, name: aws-for-fluent-bit }
+  - path: fluent-bit-config.patch.yaml
+    target: { version: v1, kind: ConfigMap, name: aws-for-fluent-bit }
+  - path: fluent-bit-security.patch.yaml
+    target: { group: apps, version: v1, kind: DaemonSet, name: aws-for-fluent-bit }
+  - path: fluent-bit-serviceaccount.patch.yaml
+    target: { version: v1, kind: ServiceAccount, name: aws-for-fluent-bit }
+  - path: fluent-bit-egress.yaml
+    target: { group: networking.k8s.io, version: v1, kind: NetworkPolicy, name: fluent-bit-cloudwatch-egress }
   - target: { version: v1, kind: Service, name: graphql-gateway-stable }
     patch: |-
       - op: remove

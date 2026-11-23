@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from flows import find_saga_anomalies
+from flows import find_saga_anomalies, summarize_sagas
 
 
 def test_audits_successful_compensated_and_orphaned_sagas():
@@ -13,3 +13,4 @@ def test_audits_successful_compensated_and_orphaned_sagas():
     ]
     anomalies = find_saga_anomalies(records, max_age_minutes=10)
     assert {item["saga_id"] for item in anomalies} == {"orphan", "failed-compensation"}
+    assert summarize_sagas(records, anomalies) == {"compensated": 1, "failed": 1, "orphaned": 1}

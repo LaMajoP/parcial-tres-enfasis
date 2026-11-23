@@ -3,7 +3,7 @@ import type { Environment } from '@aegisvolt/contracts';
 
 export interface LogFields {
   level?: 'INFO' | 'WARN' | 'ERROR'; service: string; environment: Environment; operation: string;
-  status: 'STARTED' | 'SUCCEEDED' | 'FAILED'; correlation_id?: string; saga_id?: string;
+  status: 'STARTED' | 'SUCCEEDED' | 'FAILED'; event?: string; correlation_id?: string; saga_id?: string;
   duration_ms?: number; error_code?: string; [key: string]: unknown;
 }
 
@@ -16,7 +16,15 @@ const sanitize = (value: unknown): unknown => {
 };
 
 export const log = (fields: LogFields): void => {
-  console.log(JSON.stringify(sanitize({ timestamp: new Date().toISOString(), level: 'INFO', ...fields })));
+  console.log(JSON.stringify(sanitize({
+    ...fields,
+    // CloudWatch groups existentes omiten el sufijo de los nombres de paquete.
+    // `service` se conserva íntegro para poder buscar por el identificador real.
+    service_group: fields.service.replace(/-service$/, ''),
+    timestamp: new Date().toISOString(),
+    level: fields.level ?? 'INFO',
+    event: fields.event ?? fields.operation
+  })));
 };
 
 export const correlationIdFrom = (headers: Record<string, string | string[] | undefined>): string => {
@@ -36,7 +44,8 @@ export class Metrics {
     // CloudWatch Embedded Metric Format: Fluent Bit reenvía esta línea JSON sin transformarla.
     console.log(JSON.stringify({
       timestamp: new Date(timestamp).toISOString(), level: 'INFO', service: this.service, environment: this.environment,
-      operation: 'metric', status: 'SUCCEEDED', [name]: value,
+      service_group: this.service.replace(/-service$/, ''),
+      operation: 'metric', event: 'metric', status: 'SUCCEEDED', [name]: value,
       _aws: { Timestamp: timestamp, CloudWatchMetrics: [{ Namespace: this.namespace, Dimensions: [['Environment', 'Service']], Metrics: [{ Name: name, Unit: unit }] }] }
     }));
   }
