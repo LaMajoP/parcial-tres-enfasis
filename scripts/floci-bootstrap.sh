@@ -54,4 +54,8 @@ case "$action" in
   outputs)
     "${tf[@]}" output
     ;;
+  *)
+    echo "Acción no permitida: ${action:-<vacía>}" >&2
+    exit 64
+    ;;
 esac

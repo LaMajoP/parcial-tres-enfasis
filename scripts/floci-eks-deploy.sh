@@ -42,7 +42,7 @@ docker save "${images[@]}" | docker exec -i "$cluster_container" ctr -n k8s.io i
 # conservar el CRD/controlador real, no una simulación local.
 docker exec "$cluster_container" kubectl create namespace argo-rollouts --dry-run=client -o yaml | docker exec -i "$cluster_container" kubectl apply -f -
 if ! docker exec "$cluster_container" kubectl -n argo-rollouts get deployment argo-rollouts >/dev/null 2>&1; then
-  curl --silent --show-error --fail --location \
+  curl --silent --show-error --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
     https://github.com/argoproj/argo-rollouts/releases/download/v1.8.3/install.yaml \
     | docker exec -i "$cluster_container" kubectl -n argo-rollouts apply -f -
 fi
@@ -59,10 +59,14 @@ else
     | sed "s/aegisvolt-dev/aegisvolt-${environment}/g"
 fi | docker exec -i "$cluster_container" kubectl apply -f -
 
-# La IP pertenece a una red Docker privada y no es localhost. Además de la
-# ConfigMap, se restringe explícitamente la salida a ese único destino/puerto.
+# EXCEPCIÓN LOCAL (Sonar security hotspot): Floci 2.5.0 expone su API emulada
+# sin TLS exclusivamente en la red Docker privada. `floci_ip` se obtiene del
+# network aislado, no de entrada de usuario; el endpoint nunca se publica fuera
+# de loopback y la NetworkPolicy siguiente permite sólo IP/puerto exactos.
+# No sustituir por HTTPS: el emulador no ofrece TLS en 4566.
+floci_dynamodb_endpoint="http://${floci_ip}:4566"
 docker exec "$cluster_container" kubectl -n "$namespace" patch configmap aegisvolt-runtime --type=merge \
-  -p "{\"data\":{\"AEGISVOLT_ENV\":\"${environment}\",\"TABLE_RESERVATIONS\":\"aegisvolt-reservations-${environment}\",\"TABLE_BILLING\":\"aegisvolt-billing-${environment}\",\"TABLE_DISPATCH\":\"aegisvolt-dispatch-${environment}\",\"TABLE_SAGA\":\"aegisvolt-saga-${environment}\",\"TABLE_FLAGS\":\"aegisvolt-flags-${environment}\",\"DYNAMODB_ENDPOINT\":\"http://${floci_ip}:4566\",\"AWS_ACCESS_KEY_ID\":\"floci\",\"AWS_SECRET_ACCESS_KEY\":\"floci\"}}"
+  -p "{\"data\":{\"AEGISVOLT_ENV\":\"${environment}\",\"TABLE_RESERVATIONS\":\"aegisvolt-reservations-${environment}\",\"TABLE_BILLING\":\"aegisvolt-billing-${environment}\",\"TABLE_DISPATCH\":\"aegisvolt-dispatch-${environment}\",\"TABLE_SAGA\":\"aegisvolt-saga-${environment}\",\"TABLE_FLAGS\":\"aegisvolt-flags-${environment}\",\"DYNAMODB_ENDPOINT\":\"${floci_dynamodb_endpoint}\",\"AWS_ACCESS_KEY_ID\":\"floci\",\"AWS_SECRET_ACCESS_KEY\":\"floci\"}}"
 for policy in domain-service-ingress-egress gateway-ingress-egress; do
   policy_json="$(docker exec "$cluster_container" kubectl -n "$namespace" get networkpolicy "$policy" -o json)"
   if ! grep -Fq "\"cidr\":\"${floci_ip}/32\"" <<<"$policy_json"; then
@@ -82,4 +86,4 @@ done
 docker exec "$cluster_container" kubectl -n "$namespace" wait --for=condition=Healthy rollout/graphql-gateway --timeout=6m
 docker exec "$cluster_container" kubectl -n "$namespace" wait --for=condition=Available rollout/graphql-gateway --timeout=6m
 docker exec "$cluster_container" kubectl -n "$namespace" get pods,services,rollouts
-printf 'AegisVolt desplegado en %s usando DynamoDB Floci en http://%s:4566\n' "$cluster_name" "$floci_ip"
+printf 'AegisVolt desplegado en %s usando DynamoDB Floci en %s\n' "$cluster_name" "$floci_dynamodb_endpoint"
