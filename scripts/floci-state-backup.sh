@@ -45,5 +45,10 @@ for source in "${sources[@]}"; do
 done
 
 (( copied > 0 )) || { echo "No se encontraron estados fuente en /tmp." >&2; exit 66; }
-(cd "$destination" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$destination/SHA256SUMS"
+(
+  cd "$destination"
+  find . -type f ! -name SHA256SUMS -print0 |
+    sort -z |
+    xargs -0 -r sha256sum
+) > "$destination/SHA256SUMS"
 printf 'Respaldo inmutable creado: %s (%s archivos)\n' "$destination" "$copied"

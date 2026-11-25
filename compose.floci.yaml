@@ -40,7 +40,9 @@ services:
       timeout: 3s
       retries: 20
       start_period: 5s
-    networks: [floci]
+    networks:
+      floci:
+        ipv4_address: 172.27.0.2
     restart: unless-stopped
 
 volumes:
@@ -51,3 +53,7 @@ volumes:
 networks:
   floci:
     name: aegisvolt-floci-net
+    ipam:
+      config:
+        - subnet: 172.27.0.0/16
+          gateway: 172.27.0.1

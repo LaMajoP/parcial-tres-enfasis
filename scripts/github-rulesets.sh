@@ -25,6 +25,18 @@ trap cleanup EXIT
 curl --fail-with-body --silent --show-error "${headers[@]}" "$api" > "$work_dir/current.json"
 
 checks='["promotion-policy","lockfile","lint-build","unit-tests","integration-tests","resilience-tests","e2e-tests","image-build","terraform-offline"]'
+if [[ -n "${FLOCI_PLAN_REQUIRED_CONTEXT:-}" ]]; then
+  checks="$(python3 - "$checks" "$FLOCI_PLAN_REQUIRED_CONTEXT" <<'PY'
+import json, sys
+checks = json.loads(sys.argv[1])
+context = sys.argv[2]
+if not context.strip() or context in checks:
+    raise SystemExit("FLOCI_PLAN_REQUIRED_CONTEXT vacío o duplicado")
+checks.append(context)
+print(json.dumps(checks))
+PY
+)"
+fi
 for branch in dev test prod; do
   payload="$work_dir/$branch.json"
   python3 - "$branch" "$checks" > "$payload" <<'PY'
@@ -44,10 +56,12 @@ payload = {
         {
             "type": "pull_request",
             "parameters": {
-                "required_approving_review_count": 1,
-                "dismiss_stale_reviews_on_push": True,
+                # La entrega es individual: PR y CI obligatorios, sin exigir
+                # una segunda persona que no existe en este repositorio.
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": False,
                 "require_code_owner_review": False,
-                "require_last_push_approval": True,
+                "require_last_push_approval": False,
                 "required_review_thread_resolution": True,
             },
         },

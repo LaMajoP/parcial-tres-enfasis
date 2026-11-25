@@ -23,8 +23,12 @@ errors: list[str] = []
 ci = load(".github/workflows/ci.yml")
 deploy = load(".github/workflows/deploy.yml")
 build = load(".github/workflows/build-release-images.yml")
+floci_plan = load(".github/workflows/floci-plan.yml")
+floci_apply = load(".github/workflows/floci-apply.yml")
 ci_jobs = ci.get("jobs", {})
 deploy_jobs = deploy.get("jobs", {})
+floci_plan_job = floci_plan.get("jobs", {}).get("terraform-plan", {})
+floci_apply_job = floci_apply.get("jobs", {}).get("terraform-apply", {})
 
 ci_on = ci.get("on", {})
 if sorted(ci_on.get("pull_request", {}).get("branches", [])) != ["dev", "prod", "test"]:
@@ -100,6 +104,28 @@ if "workflow_dispatch" not in build.get("on", {}):
     errors.append("La construcción de imágenes debe ser controlada por workflow_dispatch")
 if "vars.CD_ENABLED == 'true'" not in str(build.get("jobs", {}).get("build-and-push", {}).get("if", "")):
     errors.append("La construcción manual de imágenes debe respetar CD_ENABLED")
+
+floci_plan_targets = sorted(floci_plan.get("on", {}).get("pull_request", {}).get("branches", []))
+floci_apply_targets = sorted(floci_apply.get("on", {}).get("push", {}).get("branches", []))
+if floci_plan_targets != ["dev", "prod", "test"]:
+    errors.append("Floci plan debe dispararse en PR solo hacia dev/test/prod")
+if floci_apply_targets != ["dev", "prod", "test"]:
+    errors.append("Floci apply debe dispararse en push solo a dev/test/prod")
+for label in ("self-hosted", "linux", "aegisvolt-floci"):
+    if label not in floci_plan_job.get("runs-on", []) or label not in floci_apply_job.get("runs-on", []):
+        errors.append("Workflows Floci deben usar exclusivamente el runner etiquetado aegisvolt-floci")
+if "github.base_ref" not in str(floci_plan_job.get("environment", "")):
+    errors.append("Floci PR plan debe seleccionar Environment desde github.base_ref")
+if "github.ref_name" not in str(floci_apply_job.get("environment", "")):
+    errors.append("Floci push apply debe seleccionar Environment desde github.ref_name")
+if "github.event.pull_request.head.repo.full_name == github.repository" not in str(floci_plan_job.get("if", "")):
+    errors.append("Floci plan debe excluir PR de forks del runner self-hosted")
+floci_plan_text = str(floci_plan_job)
+floci_apply_text = str(floci_apply_job)
+if "floci-ci-terraform.sh plan" not in floci_plan_text or "floci-ci-terraform.sh apply" not in floci_apply_text:
+    errors.append("Workflows Floci deben usar el wrapper local plan/apply con guardas")
+if "aws-actions/configure-aws-credentials" in floci_plan_text + floci_apply_text:
+    errors.append("Workflows Floci no deben configurar credenciales AWS")
 
 deployment_script = Path("scripts/deploy-kubernetes.sh").read_text(encoding="utf-8")
 if "@sha256" not in deployment_script or "kubectl apply -k" not in deployment_script:

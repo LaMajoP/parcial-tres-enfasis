@@ -59,6 +59,18 @@ def find_saga_anomalies(records: list[dict[str, Any]], max_age_minutes: int = 10
     return anomalies
 
 
+def summarize_sagas(records: list[dict[str, Any]], anomalies: list[dict[str, Any]]) -> dict[str, int]:
+    """Summarize terminal compensated/failed SAGAs and active orphan candidates."""
+    counts = {"compensated": 0, "failed": 0, "orphaned": 0}
+    for record in records:
+        if record.get("state") == "COMPENSATED":
+            counts["compensated"] += 1
+        elif record.get("state") == "COMPENSATION_FAILED":
+            counts["failed"] += 1
+    counts["orphaned"] = sum(item.get("kind") == "STUCK_SAGA" for item in anomalies)
+    return counts
+
+
 @task(retries=2, retry_delay_seconds=5, timeout_seconds=30)
 def audit_dynamodb(environment: str) -> dict[str, Any]:
     table = _dynamo(environment)
@@ -71,13 +83,19 @@ def audit_dynamodb(environment: str) -> dict[str, Any]:
             break
         scan_kwargs["ExclusiveStartKey"] = page["LastEvaluatedKey"]
     anomalies = find_saga_anomalies(records)
-    return {"environment": environment, "table": table.name, "scanned": len(records), "anomalies": anomalies}
+    return {"environment": environment, "table": table.name, "scanned": len(records),
+            "saga_counts": summarize_sagas(records, anomalies), "anomalies": anomalies}
 
 
 @task
 def publish_audit_summary(health: dict[str, Any], audit: dict[str, Any]) -> dict[str, Any]:
     logger = get_run_logger()
-    summary = {"environment": audit["environment"], "health_ok": health["ok"], "sagas_scanned": audit["scanned"], "anomaly_count": len(audit["anomalies"]), "anomalies": audit["anomalies"]}
+    summary = {
+        "environment": audit["environment"], "health_ok": health["ok"],
+        "health_status": health.get("status", "UNAVAILABLE"),
+        "sagas_scanned": audit["scanned"], "saga_counts": audit["saga_counts"],
+        "anomaly_count": len(audit["anomalies"]), "anomalies": audit["anomalies"]
+    }
     logger.info(json.dumps(summary))
     if summary["anomaly_count"]:
         logger.warning("Se detectaron SAGAs para reconciliación: %s", json.dumps(audit["anomalies"]))

@@ -1,0 +1,23 @@
+# Backend state de la raíz local-floci. Activar solamente mediante
+# scripts/floci-state-migrate.sh migrate, nunca en local-floci-bootstrap.
+terraform {
+  backend "s3" {
+    bucket               = "aegisvolt-floci-terraform-state"
+    key                  = "terraform.tfstate"
+    region               = "us-east-2"
+    workspace_key_prefix = "env"
+
+    endpoints = {
+      s3 = "http://127.0.0.1:4567"
+    }
+    skip_credentials_validation = true
+    skip_region_validation      = true
+    skip_requesting_account_id  = true
+    skip_metadata_api_check     = true
+    use_path_style              = true
+    use_lockfile                = true
+
+    access_key = "floci"
+    secret_key = "floci"
+  }
+}

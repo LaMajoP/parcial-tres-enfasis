@@ -1,0 +1,9 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: aws-for-fluent-bit
+spec:
+  template:
+    spec:
+      nodeSelector:
+        $patch: replace
