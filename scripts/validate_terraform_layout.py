@@ -56,7 +56,7 @@ if '"fluent-bit"' in cloudwatch:
     errors.append("El grupo fluent-bit no coincide con el label app=aws-for-fluent-bit de Fluent Bit.")
 if 'AWS_REGION: us-east-2' not in runtime_config:
     errors.append("Los manifiestos AWS deben usar la región objetivo us-east-2.")
-if 'public.ecr.aws' in fluent_bit or 'aegisvolt/aws-for-fluent-bit:2.32.4' not in fluent_bit:
+if 'public.ecr.aws' in fluent_bit or 'aegisvolt/aws-for-fluent-bit:3.5.6' not in fluent_bit:
     errors.append("Fluent Bit debe referenciar la imagen privada sustituible, no un registry público.")
 for required in ('AWS_DEPLOY_ROLE_ARN', 'EKS_ACCESS_PRINCIPAL_ARNS', 'TF_VAR_eks_access_principal_arns'):
     if required not in ci or required not in deploy:

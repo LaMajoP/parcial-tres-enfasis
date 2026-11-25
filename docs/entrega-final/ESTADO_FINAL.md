@@ -1,5 +1,89 @@
 # AegisVolt — entrega local con Floci
 
+## Observabilidad: estado comprobado — 2026-11-23
+
+El código de logging SAGA está implementado: JSON incluye timestamp, level,
+event, servicio, ambiente y correlation ID; el gateway propaga el mismo ID a
+reserva, facturación y dispatch. Se añadieron 3 pruebas unitarias de formato,
+saneamiento y propagación, que pasaron junto a las 3 pruebas unitarias de
+dominio (6/6).
+
+Prefect ahora expone conteos de SAGAs compensadas, fallidas y huérfanas en el
+resumen del flow. Su test actualizado no se pudo ejecutar desde el host porque
+no tiene `pytest`; tampoco se verificó un run funcional en la UI de Prefect en
+esta revisión.
+
+CloudWatch Logs real/emulado por Floci sigue pendiente de verificación. El
+overlay Floci se preparó en el repositorio para programar Fluent Bit en modo
+non-root, sin token ni RBAC, con `/var/log` read-only y egress exclusivamente
+a `172.27.0.2:4566`. Esa IP se observó en modo lectura en
+`aegisvolt-floci-net` (`172.27.0.0/16`, gateway `.1`), con los tres
+contenedores k3s conectados; Compose declara ahora la misma IP fija para
+futuras creaciones. El despliegue no se ejecutó y no se afirma ingesta.
+
+La configuración filtra logs con `correlation_id` de gateway, reserva,
+facturación y dispatch; las métricas sin correlación no se envían. Usa solo
+grupos CloudWatch ya existentes y no permite
+crearlos automáticamente. El filtro Kubernetes se eliminó, por lo que no se
+necesitan permisos del API ni se monta token. Se añadió una variante de
+Kustomize de observabilidad que afecta únicamente Fluent Bit y su NetworkPolicy,
+más un overlay de rollback. `scripts/verify-floci-logs.sh <env> <correlation_id>`
+consulta, sin escribir, la misma SAGA en reserva, billing y dispatch. Aún no se
+ejecutó; tampoco se ejecutó `scripts/probe-floci-cloudwatch.sh`, que crea un
+stream y un evento persistentes.
+
+La preparación de manifests y logger pasó 8 pruebas estáticas de Fluent Bit,
+la validación Kubernetes general, 6 unitarias del logger, build TypeScript,
+sintaxis shell, configuración Compose y `git diff --check`; el detalle y los
+comandos preparados están en `docs/RESULTADOS_VERIFICACION.md`. Siguen
+pendientes la disponibilidad de la imagen `aegisvolt/aws-for-fluent-bit:2.32.4`
+en containerd de cada cluster, el despliegue (no autorizado en esta tarea) a
+los tres k3s y la consulta real de las APIs de CloudWatch Logs. No se comprobaron en esta tarea
+CreateLogStream/PutLogEvents/DescribeLogStreams/GetLogEvents/FilterLogEvents
+desde Fluent Bit, ni un run funcional de Prefect.
+
+## Terraform State remoto en Floci — 2026-11-23
+
+La migración real a S3 de Floci fue confirmada por el operador: bucket
+`aegisvolt-floci-terraform-state`, versionado habilitado, sin uso de AWS real.
+El bootstrap conserva su backend local independiente y los states/backups
+originales se preservaron. `terraform init -migrate-state` incrementó el
+serial una unidad; los lineages y recursos se conservaron y los planes
+posteriores dieron `No changes`:
+
+| Workspace | Lineage | Serial | Recursos | Plan |
+|---|---|---:|---:|---|
+| dev | `866b3622-720a-51f3-52f9-fbe6ca390181` | 143 | 37 | `No changes` |
+| test | `38bd6a3b-1ced-a795-8abf-09732c74281a` | 71 | 36 | `No changes` |
+| prod | `457bf529-74b4-9772-080c-c5c694f3f96e` | 68 | 36 | `No changes` |
+
+Esta sección registra evidencia informada desde la terminal del operador; no
+se repitió la migración ni se accedió al backend durante esta actualización.
+Las limitaciones de CloudWatch real, Fluent Bit/IRSA, ALB/NLB, API Gateway
+privado y Canary ALB 20/80 permanecen sin cambios.
+
+## Evidencia funcional reciente — 2026-11-22
+
+Las pruebas funcionales siguientes se ejecutaron en Docker Compose con
+DynamoDB Local: `npm run test:graphql-schema` (aprobado),
+`npm run test:integration` (6/6), `npm run test:resilience` (1/1) y
+`npm run test:e2e` (1/1). El gateway GraphQL, los tres microservicios y el
+frontend estuvieron saludables. La prueba Prefect ejecutada dentro de su
+contenedor fue `python -m pytest /opt/aegisvolt/prefect/tests/test_flows.py
+-q -p no:cacheprovider` con `PYTHONPATH=/opt/aegisvolt/prefect`: 1/1 aprobada,
+con seis advertencias no bloqueantes.
+
+Por separado, `./scripts/floci-verify.sh` confirmó respuesta de la API
+emulada Floci, 15 tablas DynamoDB y tres clústeres EKS registrados. Estas
+pruebas funcionales recientes no se ejecutaron dentro de pods EKS. Conservan
+su alcance local y no demuestran servicios AWS reales.
+
+El generador de rulesets en `scripts/github-rulesets.sh` exige los checks de
+CI presentes en el workflow y omite `terraform-plan`, porque GitHub omite ese
+job cuando `TF_PLAN_ENABLED` está desactivado. Cuando se activa, el workflow
+continúa exigiendo la configuración real y ejecuta el plan AWS; no hay
+evidencia aquí de un plan ni despliegue AWS.
+
 ## Resultado comprobado
 
 El laboratorio se ejecutó únicamente contra Floci `2.5.0` en
@@ -153,7 +237,8 @@ SHA-256 antes de aplicar. Los respaldos quedan ignorados por Git bajo
   contenedor actual para respetar la preservación solicitada.
 - CloudWatch, IAM, VPC/VPCE, ECR y EKS se verificaron mediante las APIs
   emuladas. El grupo `/aegisvolt/dev/graphql-gateway` existe, pero tenía cero
-  log streams: el overlay local no programa Fluent Bit. No se declara
+  log streams: los clústeres actuales siguen sin Fluent Bit porque el overlay
+  preparado en esta tarea no se desplegó. No se declara
   equivalencia operacional con AWS ni se verificó Fluent Bit/IRSA, ALB/NLB,
   API Gateway privado, distribución canary 20/80 o alarmas/AnalysisRun basados
   en telemetría real.

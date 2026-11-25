@@ -14,11 +14,14 @@ test('muestra ambiente, disponibilidad, flags y permite iniciar una sesión', as
     await expect(page.getByText('Disponibilidad de conectores')).toBeVisible();
     await expect(page.getByText('ENABLE_DYNAMIC_SURGE_PRICING')).toBeVisible();
     await page.getByLabel('Flota').fill(fleetId);
+    await expect(page.getByLabel('Conector')).toHaveValue(/connector-/);
     await page.getByRole('button', { name: 'Confirmar reserva y carga' }).click();
-    await expect(page.getByText('COMPLETED').first()).toBeVisible({ timeout: 12_000 });
-    await expect(page.getByText('Sesión seleccionada')).toBeVisible();
-    sagaId = (await page.locator('.two-columns .panel').nth(1).locator('code').textContent())?.trim();
+    const resultPanel = page.locator('.two-columns .panel').nth(1);
+    await expect(resultPanel.locator('code')).toBeVisible({ timeout: 20_000 });
+    sagaId = (await resultPanel.locator('code').textContent())?.trim();
     expect(sagaId).toBeTruthy();
+    await expect(resultPanel.getByText('COMPLETED')).toBeVisible();
+    await expect(page.getByText('Sesión seleccionada')).toBeVisible();
   } finally {
     if (sagaId) {
       const closed = await page.request.post(gateway, { headers: { 'x-aegisvolt-role': 'admin-demo' }, data: { query: 'mutation Close($id:ID!){ closeCharging(sagaId:$id){ state } }', variables: { id: sagaId } } });

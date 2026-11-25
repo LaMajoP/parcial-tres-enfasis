@@ -1,0 +1,39 @@
+name: Floci · Terraform plan en PR
+
+on:
+  pull_request:
+    branches: [dev, test, prod]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: floci-plan-${{ github.event.pull_request.base.ref }}
+  cancel-in-progress: true
+
+jobs:
+  terraform-plan:
+    name: Floci Terraform plan
+    # Nunca ejecutar código de forks/no confiables en el runner que accede al state.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) &&
+      github.event.pull_request.draft == false
+    runs-on: [self-hosted, linux, aegisvolt-floci]
+    environment: floci-plan-${{ github.base_ref }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Resolver y validar ambiente destino
+        id: target
+        env:
+          TARGET_BRANCH: ${{ github.base_ref }}
+        run: echo "environment=$(bash scripts/floci-environment.sh pr "$TARGET_BRANCH")" >> "$GITHUB_OUTPUT"
+      - name: Plan local Floci (plan only)
+        run: bash scripts/floci-ci-terraform.sh plan "${{ steps.target.outputs.environment }}"
+

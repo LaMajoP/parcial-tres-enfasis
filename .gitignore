@@ -17,6 +17,7 @@ test-results/
 !infra/terraform/local-floci-bootstrap/floci.tfvars
 infra/terraform/bootstrap-state/backend.s3.tf
 infra/terraform/local-emulation/backend.localstack.tf
+infra/terraform/local-floci/backend.floci.s3.tf
 __pycache__/
 .pytest_cache/
 .venv/

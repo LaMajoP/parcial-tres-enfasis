@@ -1,0 +1,35 @@
+name: Floci · Terraform apply por ambiente
+
+on:
+  push:
+    branches: [dev, test, prod]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: floci-apply-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  terraform-apply:
+    runs-on: [self-hosted, linux, aegisvolt-floci]
+    environment: floci-${{ github.ref_name }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Resolver ambiente del push
+        id: target
+        env:
+          PUSH_BRANCH: ${{ github.ref_name }}
+        run: echo "environment=$(bash scripts/floci-environment.sh push "$PUSH_BRANCH")" >> "$GITHUB_OUTPUT"
+      - name: Plan, bloquear destrucción y aplicar solo el workspace del push
+        run: bash scripts/floci-ci-terraform.sh apply "${{ steps.target.outputs.environment }}"
+      - name: Construir e importar aplicación y colector local
+        run: bash scripts/floci-build-images.sh
+      - name: Desplegar solo el ambiente del push y sembrar datos demo faltantes
+        run: bash scripts/floci-eks-deploy.sh "aegisvolt-${{ steps.target.outputs.environment }}"
+      - name: Verificar SAGA y logs reales del ambiente desplegado
+        run: bash scripts/floci-smoke.sh "${{ steps.target.outputs.environment }}"

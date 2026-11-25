@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: aws-for-fluent-bit
+spec:
+  template:
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        # k3s writes container logs as root:root 0640. Keep a non-root UID,
+        # but use the root group to read the read-only log mount.
+        runAsGroup: 0
+      containers:
+        - name: fluent-bit
+          env:
+            - name: AEGISVOLT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: AWS_ACCESS_KEY_ID
+              value: floci
+            - name: AWS_SECRET_ACCESS_KEY
+              value: floci
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 0
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: parsers
+              mountPath: /fluent-bit/etc/aegisvolt-parsers.conf
+              subPath: aegisvolt-parsers.conf
+              readOnly: true
+      volumes:
+        - name: parsers
+          configMap:
+            name: aws-for-fluent-bit
+            items:
+              - key: aegisvolt-parsers.conf
+                path: aegisvolt-parsers.conf

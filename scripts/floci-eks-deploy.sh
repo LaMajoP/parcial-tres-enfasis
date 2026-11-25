@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Despliega la aplicación sobre el k3s EKS real de Floci, sin depender de
-# localhost dentro de Pods. No modifica los manifiestos versionados: inyecta la
-# IP actual del contenedor Floci como configuración runtime y la permite sólo
-# por NetworkPolicy hacia el puerto del emulador.
+# localhost dentro de Pods. Verifica la IP fija declarada en compose.floci.yaml,
+# inyecta ese endpoint runtime y lo permite sólo por NetworkPolicy al emulador.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,6 +13,7 @@ esac
 environment="${cluster_name#aegisvolt-}"
 namespace="aegisvolt-${environment}"
 network="aegisvolt-floci-net"
+expected_floci_ip="172.27.0.2"
 
 for command in docker kubectl; do
   command -v "$command" >/dev/null || { echo "Falta $command" >&2; exit 69; }
@@ -22,7 +22,10 @@ done
 cluster_container="$(docker ps --filter "name=^/floci-aws-eks-${cluster_name}$" --format '{{.Names}}')"
 [[ -n "$cluster_container" ]] || { echo "No hay k3s activo para ${cluster_name}. Aplique Terraform primero." >&2; exit 69; }
 floci_ip="$(docker inspect -f "{{(index .NetworkSettings.Networks \"${network}\").IPAddress}}" aegisvolt-floci)"
-[[ "$floci_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "IP de Floci inválida: $floci_ip" >&2; exit 1; }
+[[ "$floci_ip" == "$expected_floci_ip" ]] || {
+  echo "La IP de Floci debe ser ${expected_floci_ip} según compose.floci.yaml; obtenida: ${floci_ip:-vacía}" >&2
+  exit 1
+}
 
 # k3s usa containerd y no ve el almacén de imágenes del daemon Docker. La
 # importación por stdin no crea archivos temporales ni registra imágenes remotas.
@@ -32,6 +35,7 @@ images=(
   aegisvolt/billing-wallet:0.0.0
   aegisvolt/energy-dispatch:0.0.0
   aegisvolt/web:0.0.0
+  aegisvolt/aws-for-fluent-bit:3.5.6
 )
 for image in "${images[@]}"; do
   docker image inspect "$image" >/dev/null || { echo "Falta imagen local $image; ejecute npm run kind:up o construya la imagen." >&2; exit 69; }
@@ -83,7 +87,21 @@ docker exec "$cluster_container" kubectl -n "$namespace" patch rollout graphql-g
 for deployment in station-reservation billing-wallet energy-dispatch web; do
   docker exec "$cluster_container" kubectl -n "$namespace" rollout status "deployment/${deployment}" --timeout=5m
 done
+
+# El DaemonSet puede arrancar antes del patch del ConfigMap runtime. Reiniciarlo
+# aquí garantiza que tome el environment y los grupos CloudWatch correctos.
+docker exec "$cluster_container" kubectl -n "$namespace" rollout restart daemonset/aws-for-fluent-bit
+docker exec "$cluster_container" kubectl -n "$namespace" rollout status daemonset/aws-for-fluent-bit --timeout=3m
 docker exec "$cluster_container" kubectl -n "$namespace" wait --for=condition=Healthy rollout/graphql-gateway --timeout=6m
 docker exec "$cluster_container" kubectl -n "$namespace" wait --for=condition=Available rollout/graphql-gateway --timeout=6m
+
+# Semilla condicional de laboratorio: crea solo entidades demo ausentes.
+gateway_pod="$(docker exec "$cluster_container" kubectl -n "$namespace" get pods -l app=graphql-gateway -o jsonpath='{.items[0].metadata.name}')"
+[[ -n "$gateway_pod" ]] || { echo "No se encontró pod GraphQL para sembrar ${environment}." >&2; exit 1; }
+docker exec "$cluster_container" kubectl -n "$namespace" exec "pod/$gateway_pod" -- env \
+  GRAPHQL_URL=http://127.0.0.1:4000/graphql \
+  STATION_SERVICE_URL=http://station-reservation:3001 \
+  BILLING_SERVICE_URL=http://billing-wallet:3002 \
+  node scripts/seed.mjs
 docker exec "$cluster_container" kubectl -n "$namespace" get pods,services,rollouts
 printf 'AegisVolt desplegado en %s usando DynamoDB Floci en %s\n' "$cluster_name" "$floci_dynamodb_endpoint"

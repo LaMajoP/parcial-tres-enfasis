@@ -1,5 +1,196 @@
 # Resultados de verificación reales
 
+## Diagnóstico de observabilidad Floci — 2026-11-23
+
+### Preparación del overlay Floci — 2026-11-23
+
+**Implementado en archivos, todavía no desplegado.** El overlay Floci ahora
+quita el `nodeSelector` que Kind agrega a Fluent Bit. Se añadió una variante
+Kustomize enfocada solo en ServiceAccount, ConfigMap, DaemonSet y NetworkPolicy,
+para que una activación futura no reconcilie los microservicios. Fluent Bit
+usa `cloudwatch_logs` con endpoint TCP `172.27.0.2:4566`, credenciales ficticias
+`floci`, `tls Off` (el emulador local no sirve TLS) y
+`auto_create_group false`; la plantilla apunta a grupos existentes. El plugin
+usa endpoint/puerto y record accessor para plantillas, conforme a la
+[documentación oficial de Fluent Bit](https://docs.fluentbit.io/manual/pipeline/outputs/cloudwatch).
+
+La dirección se obtuvo de la inspección de solo lectura de
+`aegisvolt-floci-net`: red `172.27.0.0/16`, gateway `172.27.0.1`, Floci
+`172.27.0.2`; los contenedores de los tres k3s existentes aparecieron unidos a
+esa misma red. `compose.floci.yaml` ahora declara ese IPAM/IP estático para
+futuras creaciones, y `scripts/floci-eks-deploy.sh` falla si detecta otra IP.
+No se reinició Compose ni se recrearon contenedores.
+
+El manifiesto configura Fluent Bit para correr non-root con filesystem root
+read-only, capabilities eliminadas, `/var/log` read-only y sin token montado.
+No se crea RBAC ni se
+concede egress a Kubernetes API porque se quitó el filtro `kubernetes`: los
+logs de aplicación ya llevan `environment` y `service_group`. La política de
+salida de Fluent Bit permite solo TCP/4566 a `172.27.0.2/32`; la excepción DNS
+global que ya existe sigue cubriendo DNS. Se filtran los namespaces
+`aegisvolt-*`, el ambiente del ConfigMap de ese cluster, cuatro servicios con
+logger estructurado y registros con `correlation_id`; logs no JSON, métricas
+sin correlación o fuera del allowlist no llegan a CloudWatch. El logger añade
+`service_group` sin cambiar `service`, para coincidir con los grupos Terraform.
+
+El overlay de rollback restaura el selector que deja Fluent Bit sin programar.
+`scripts/verify-floci-logs.sh` consulta de solo lectura una SAGA por
+`correlation_id` en los grupos existentes de reserva, billing y dispatch. No
+se ejecutó: esa consulta aún no tiene eventos de Fluent Bit que verificar.
+Tampoco se ejecutó `probe-floci-cloudwatch.sh`, que sí crea un stream y escribe
+un evento persistente.
+
+### Verificaciones estáticas de esta preparación
+
+| Comprobación | Resultado | Alcance |
+|---|---|---|
+| Inspección de `aegisvolt-floci-net` | Floci respondió con `172.27.0.2/16`; gateway y tres contenedores k3s comprobados en modo lectura. | No inspecciona objetos Kubernetes ni demuestra flujo de logs. |
+| `docker compose -f compose.floci.yaml config --services` | Aprobado. | Parseo local; no se ejecutó `up`, `down` ni recreación. |
+| `kubectl kustomize infra/kubernetes/overlays/floci` y ambos overlays `floci-observability*` | Los tres renders aprobaron. | Render local; el overlay de activación solo contiene 4 recursos de Fluent Bit. No accede al API. |
+| `python3 tests/scripts/test_floci_fluentbit.py` | 8/8 pruebas aprobadas. | Endpoint/IP, selector, egress, no-token/no-RBAC, allowlist, grupos, overlay de activación acotado y rollback. |
+| `python3 scripts/validate_kubernetes.py` | Aprobado: 58 documentos, Rollout 20/80 y sin placeholders. | Validación estática del árbol Kubernetes. |
+| `npm test -- tests/unit/observability.test.ts` | 6/6 unitarias aprobadas. | JSON, saneamiento, correlation ID y pruebas de dominio; no prueban entrega a CloudWatch. |
+| `npm run build -w packages/shared-observability` | Aprobado. | Compilación TypeScript. |
+| `bash -n scripts/floci-eks-deploy.sh scripts/verify-floci-logs.sh`, `docker compose -f compose.floci.yaml config --services`, `git diff --check` | Aprobados. | Sintaxis/config/diff local. |
+| `scripts/verify-floci-logs.sh` | Preparado, no ejecutado. | Consulta CloudWatch emulado, requiere eventos reales enviados por Fluent Bit. |
+
+**Pendiente real:** comprobar si `aegisvolt/aws-for-fluent-bit:2.32.4` está
+disponible en cada containerd. El despliegue y la comprobación con APIs del
+emulador siguen sin ejecutar; no se afirma recepción de logs ni compatibilidad
+operacional probada dentro de los tres k3s.
+
+### Comandos preparados, no ejecutados
+
+Preflight server-side (solo valida los objetos del overlay; ejecutarlo después
+de autorizar acceso a los clústeres):
+
+```bash
+set -euo pipefail
+for env in dev test prod; do
+  kubectl kustomize infra/kubernetes/overlays/floci-observability \
+    | sed "s/aegisvolt-dev/aegisvolt-${env}/g" \
+    | docker exec -i "floci-aws-eks-aegisvolt-${env}" kubectl apply --dry-run=server -f -
+done
+```
+
+Despliegue acotado, una vez aprobada la revisión del preflight:
+
+```bash
+set -euo pipefail
+for env in dev test prod; do
+  kubectl kustomize infra/kubernetes/overlays/floci-observability \
+    | sed "s/aegisvolt-dev/aegisvolt-${env}/g" \
+    | docker exec -i "floci-aws-eks-aegisvolt-${env}" kubectl apply -f -
+  docker exec "floci-aws-eks-aegisvolt-${env}" kubectl -n "aegisvolt-${env}" rollout status daemonset/aws-for-fluent-bit --timeout=120s
+done
+```
+
+Rollback acotado al DaemonSet/ConfigMap/ServiceAccount/NetworkPolicy de
+Fluent Bit, que vuelve a dejar el DaemonSet sin programar:
+
+```bash
+set -euo pipefail
+for env in dev test prod; do
+  kubectl kustomize infra/kubernetes/overlays/floci-observability-disabled \
+    | sed "s/aegisvolt-dev/aegisvolt-${env}/g" \
+    | docker exec -i "floci-aws-eks-aegisvolt-${env}" kubectl apply -f -
+done
+```
+
+Tras una activación y una SAGA reproducible, verificar eventos existentes sin
+escribir:
+
+```bash
+./scripts/verify-floci-logs.sh dev '<correlation_id_de_la_saga>'
+./scripts/verify-floci-logs.sh test '<correlation_id_de_la_saga>'
+./scripts/verify-floci-logs.sh prod '<correlation_id_de_la_saga>'
+```
+
+La imagen debe estar importada en containerd de cada clúster antes del apply;
+el script Floci actual importa imágenes de aplicación, no la de Fluent Bit.
+La comprobación/importación de imágenes no se ejecutó.
+
+### Implementado en código
+
+- El logger compartido emite JSON con `timestamp`, `level`, `event`, `service`,
+  `environment` y conserva `correlation_id`/`saga_id`; sanea campos sensibles.
+- Gateway y tres servicios ya propagan el mismo correlation ID a llamadas
+  internas y logs de operaciones SAGA.
+- Fluent Bit y grupos CloudWatch están declarados; el overlay Floci ahora está
+  preparado con endpoint local, egress restringido y sin selector heredado.
+  Todavía no se ha aplicado ni se afirma ingesta.
+- Prefect ahora resume compensadas, fallidas y huérfanas (`STUCK_SAGA`). La
+  configuración declara deployments, pero no se ha demostrado worker/schedule
+  funcional para Floci.
+
+### Pruebas/lecturas ejecutadas en esta revisión
+
+| Comprobación | Resultado | Alcance |
+|---|---|---|
+| `npm test -- tests/unit/observability.test.ts` | 6/6 unitarias aprobadas (3 observabilidad, 3 dominio). | JSON/saneamiento/correlation ID; sin cluster ni CloudWatch. |
+| `python3 -m pytest observability/prefect/tests/test_flows.py -q -p no:cacheprovider` | No ejecutable: el Python del host no tiene `pytest`. | No hay resultado nuevo de Prefect. |
+| `curl http://127.0.0.1:4567/_localstack/health` | Falló conexión: Floci no estaba escuchando en esta sesión. | No se consultó ni escribió CloudWatch. |
+| `aws --endpoint-url http://127.0.0.1:4567 logs describe-log-groups ...` | Falló por endpoint no disponible. | No se probaron Create/Put/Describe/Get/FilterLogEvents. |
+| `kubectl config get-contexts -o name` | Solo `kind-aegisvolt`. | No se inspeccionaron/modificaron los tres k3s Floci. |
+| `docker compose ps` | Denegado por permisos del socket Docker. | No se arrancaron servicios. |
+
+El historial previo de Floci documenta grupos emulados, cero streams en el
+grupo gateway y Fluent Bit deliberadamente no programado. Esto no prueba que
+Floci 2.5.0 implemente las cinco APIs de ingesta/consulta solicitadas.
+`scripts/probe-floci-cloudwatch.sh` prepara una prueba reproducible que escribe
+un único stream/evento marcador en un grupo existente; no se ejecutó porque
+Floci estaba fuera de línea. El marcador quedará en el emulador cuando se
+ejecute.
+
+## Migración local de Terraform State a S3 Floci — 2026-11-23
+
+Resultados confirmados por el operador en terminal. Se usó Floci 2.5.0 y no
+AWS real. El backend de `local-floci` quedó en el bucket
+`aegisvolt-floci-terraform-state`, con versionado habilitado. El backend de
+`local-floci-bootstrap` permanece separado. Se conservaron los states locales
+originales y backups. Terraform aumentó el serial en uno durante la migración;
+lineages y recursos se mantuvieron.
+
+| Workspace | Lineage remoto | Serial | Recursos | Plan |
+|---|---|---:|---:|---|
+| dev | `866b3622-720a-51f3-52f9-fbe6ca390181` | 143 | 37 | `No changes` |
+| test | `38bd6a3b-1ced-a795-8abf-09732c74281a` | 71 | 36 | `No changes` |
+| prod | `457bf529-74b4-9772-080c-c5c694f3f96e` | 68 | 36 | `No changes` |
+
+La migración, los planes y la lectura del backend no se repitieron durante la
+actualización de esta documentación. El test simulado de migración solo
+verifica el control de flujo del script.
+
+Se corrigió el verificador posterior: exige lineage y recursos iguales, y
+acepta serial local igual o exactamente +1 (el incremento observado en esta
+migración). Cualquier otro incremento falla. `scripts/floci-terraform.sh`
+ahora exige el backend Floci activo, lo compara con la configuración aprobada
+y ya no ofrece recuperación heredada que pudiera empujar state antiguo.
+
+## Evidencia local complementaria — 2026-11-22
+
+Los resultados de esta sección fueron ejecutados y confirmados en la terminal
+local. Las pruebas funcionales recientes usaron Docker Compose y DynamoDB
+Local; no se ejecutaron dentro de pods EKS. Floci se verificó por separado
+mediante su API emulada.
+
+| Comando o comprobación | Resultado confirmado | Alcance |
+|---|---|---|
+| `npm run test:graphql-schema` | Aprobado. | Esquema GraphQL local. |
+| `npm run test:integration` | 6/6 aprobadas. | Docker Compose y DynamoDB Local. |
+| `npm run test:resilience` | 1/1 aprobada. | Docker Compose y DynamoDB Local. |
+| `npm run test:e2e` | 1/1 aprobada. | UI sobre servicios locales. |
+| `python -m pytest /opt/aegisvolt/prefect/tests/test_flows.py -q -p no:cacheprovider` con `PYTHONPATH=/opt/aegisvolt/prefect` dentro del contenedor Prefect | 1/1 aprobada; 6 advertencias no bloqueantes. | Test de clasificación/auditoría Prefect local. |
+| Estado de Docker Compose | Gateway GraphQL, tres microservicios y frontend saludables. | Servicios locales; DynamoDB Local. |
+| `./scripts/floci-verify.sh` | Floci respondió; 15 tablas DynamoDB y tres clústeres EKS registrados. | API emulada de Floci, no AWS real. |
+
+`scripts/github-rulesets.sh` ya no requiere el check `terraform-plan`: el job
+se omite cuando `TF_PLAN_ENABLED` está desactivado, por lo que ese status no
+se produciría para satisfacer el ruleset. Los checks de CI que sí se ejecutan
+siguen siendo obligatorios. Al habilitar el plan, el workflow mantiene sus
+validaciones de configuración y ejecuta el plan real; no se afirma que ese
+plan se haya ejecutado en esta verificación.
+
 > La sección del 2026-11-22 es el estado vigente y prevalece sobre notas históricas de este archivo cuando haya contradicción. No equivale a un despliegue AWS.
 
 ## Ejecución local y revisión de preparación — 2026-11-22

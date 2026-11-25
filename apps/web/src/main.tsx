@@ -36,7 +36,7 @@ function App() {
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setSubmitting(true); setError(undefined);
     try {
-      const idempotencyKey = `ui-${crypto.randomUUID()}`;
+      const idempotencyKey = `ui-${Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
       const response = await graph<{ reserveAndStartCharging: { saga: Saga } }>(`mutation Start($input: ReserveAndStartInput!) { reserveAndStartCharging(input:$input) { saga { sagaId state sessionId correlationId estimatedCostCents error { code message } events { at type status detail } } } }`, { input: { fleetId, stationId, connectorId, idempotencyKey, fastChargeBoost: fastBoost } });
       const saga = response.reserveAndStartCharging.saga;
       setLastSaga(saga);

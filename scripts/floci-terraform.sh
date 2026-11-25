@@ -5,13 +5,13 @@
 set -euo pipefail
 
 usage() {
-  echo "Uso: $0 <init|plan|apply|recover-dev-state|outputs> [dev|test|prod]" >&2
+  echo "Uso: $0 <init|plan|apply|outputs> [dev|test|prod]" >&2
   exit 64
 }
 
 action="${1:-}"
 environment="${2:-}"
-case "$action" in init|plan|apply|recover-dev-state|outputs) ;; *) usage ;; esac
+case "$action" in init|plan|apply|outputs) ;; *) usage ;; esac
 if [[ "$action" == init ]]; then
   [[ -z "$environment" ]] || usage
 else
@@ -22,6 +22,16 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 root="$repo_root/infra/terraform/local-floci"
 tf=(terraform -chdir="$root")
 plan_file="$root/plan-${environment}.tfplan"
+backend_active="$root/backend.floci.s3.tf"
+backend_example="$root/backend.s3.tf.example"
+[[ -f "$backend_active" && -f "$backend_example" ]] || {
+  echo "Backend S3 Floci no está activo; se rehúsa operar con state local/caché." >&2
+  exit 78
+}
+cmp -s "$backend_active" "$backend_example" || {
+  echo "Backend activo difiere de la configuración Floci aprobada; inspección manual requerida." >&2
+  exit 78
+}
 
 create_non_destructive_plan() {
   "${tf[@]}" plan -input=false -lock-timeout=5m -var-file=floci.tfvars -out="$plan_file"
@@ -56,15 +66,6 @@ fi
 "${tf[@]}" workspace select "$environment" >/dev/null 2>&1 || "${tf[@]}" workspace new "$environment" >/dev/null
 
 case "$action" in
-  recover-dev-state)
-    [[ "$environment" == dev ]] || { echo "Sólo existe state completo legado para dev." >&2; exit 64; }
-    "$repo_root/scripts/floci-state-backup.sh"
-    source_state="/tmp/aegisvolt-floci-full/environments/terraform.tfstate.d/dev/terraform.tfstate"
-    [[ -f "$source_state" ]] || { echo "No existe $source_state" >&2; exit 66; }
-    # No se usa -force: Terraform rechaza una colisión de lineage en vez de
-    # sobrescribir un estado que el operador pudiera haber creado después.
-    "${tf[@]}" state push "$source_state"
-    ;;
   plan)
     "${tf[@]}" plan -input=false -lock-timeout=5m -var-file=floci.tfvars -out="$plan_file"
     ;;
